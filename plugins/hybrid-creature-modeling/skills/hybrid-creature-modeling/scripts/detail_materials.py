@@ -16,6 +16,7 @@ import material_palette as mp
 
 PFX = "DRG6_"
 PAL = dict(mp.PALETTE)   # replaced per creature by build_all(palette=...)
+GEO_SCALES = False       # True: scales are geometry (scale_field); the shader follows scale_h / scale_tint
 STRIPES = None           # e.g. {"period": 0.12, "darkness": 0.55, "width": 0.35}; dorsal/flank bands across the body axis
 
 
@@ -160,34 +161,49 @@ def body_skin():
     b.link(obj, osep.inputs[0])
     w = {k: b.attr(k).outputs["Fac"] for k in ("w_up", "w_dorsal", "w_belly", "w_head", "w_tail", "w_foot", "w_lip", "w_mouth")}
 
-    # --- scale height fields (0 = groove between scales, 1 = scale top)
-    # granular and head scales are isotropic: 3D Voronoi in object space has no seams anywhere
-    gran = b.voronoi(obj, 1 / SCALE["granular"], dims="3D")
-    h_gran = b.smooth(sock(gran.outputs, "Distance"), 0.0, 0.30)
-    gran_cell = b.voronoi(obj, 1 / SCALE["granular"], feature="F1", dims="3D")
-    h_head = b.smooth(sock(b.voronoi(obj, 1 / SCALE["head"], randomness=0.75, dims="3D").outputs, "Distance"), 0.0, 0.22)
-    # oriented scales follow the body chains (body_st); their weights fade out at chain junctions
-    dvec = b.vec(b.math("DIVIDE", s, SCALE["dorsal_s"]), b.math("DIVIDE", t, SCALE["dorsal_t"]))
-    d_edge = b.smooth(sock(b.voronoi(dvec, 1.0).outputs, "Distance"), 0.0, 0.24)
-    d_cell = b.voronoi(dvec, 1.0, feature="F1")
-    across = b.math("SUBTRACT", b.math("DIVIDE", t, SCALE["dorsal_t"]), b._sep_y(sock(d_cell.outputs, "Position")))
-    keel = b.math("SUBTRACT", 1.0, b.math("MULTIPLY", b.math("ABSOLUTE", across), 3.5), clamp=True)
-    h_dors = b.math("MULTIPLY", d_edge, b.mixf(keel, 0.62, 1.0))
-    h_tail = b.brick(b.vec(t, s), SCALE["tail_t"], SCALE["tail_s"], 0.0018)          # whorls of rectangular scales
-    h_belly = b.brick(b.vec(b.math("ADD", t, 0.3), s), 0.6, SCALE["belly_row"], 0.0024, smooth=0.6, offset=0.0)
-    h_toe = b.brick(b.vec(b.math("ADD", t, 0.015), s), 0.03, SCALE["toe_row"], 0.0012, offset=0.0)
-    h_lip = b.brick(b.vec(osep.outputs[1], osep.outputs[2]), SCALE["lip_y"], SCALE["lip_z"], 0.0012, offset=0.0)
-    h = h_gran
-    for weight, pattern in ((w["w_dorsal"], h_dors), (w["w_tail"], h_tail), (w["w_belly"], h_belly),
-                            (w["w_head"], h_head), (w["w_foot"], h_toe), (w["w_lip"], h_lip), (w["w_mouth"], 0.55)):
-        h = b.mixf(weight, h, pattern)
-    amp = b.math("ADD", 1.0, b.math("ADD", b.math("MULTIPLY", w["w_dorsal"], 0.8),
-                                    b.math("ADD", b.math("MULTIPLY", w["w_belly"], 0.6), b.math("MULTIPLY", w["w_tail"], 0.4))))
-    amp = b.math("MULTIPLY", amp, b.math("SUBTRACT", 1.0, w["w_mouth"]))
-    bump = b.node("ShaderNodeBump")
-    sock(bump.inputs, "Strength").default_value = 1.0
-    sock(bump.inputs, "Distance").default_value = 0.0012
-    b.link(b.math("MULTIPLY", h, amp), sock(bump.inputs, "Height"))
+    if GEO_SCALES:
+        # geometric scales (scale_field): the sculpt carries Levels 1-2; read its height and cell id so colour and
+        # roughness follow the real scales, and add only Level 3 micro relief as bump
+        h = b.attr("scale_h").outputs["Fac"]
+        cell_rand = b.attr("scale_tint").outputs["Fac"]
+        micro = b.smooth(sock(b.voronoi(obj, 1 / 0.0026, dims="3D").outputs, "Distance"), 0.0, 0.35)
+        fine = b.node("ShaderNodeTexNoise")
+        b.link(obj, sock(fine.inputs, "Vector"))
+        sock(fine.inputs, "Scale").default_value = 900.0
+        bump = b.node("ShaderNodeBump")
+        sock(bump.inputs, "Strength").default_value = 1.0
+        sock(bump.inputs, "Distance").default_value = 0.00035
+        b.link(b.math("ADD", b.math("MULTIPLY", micro, 0.7), b.math("MULTIPLY", sock(fine.outputs, "Fac"), 0.3)), sock(bump.inputs, "Height"))
+    else:
+        # --- scale height fields (0 = groove between scales, 1 = scale top)
+        # granular and head scales are isotropic: 3D Voronoi in object space has no seams anywhere
+        gran = b.voronoi(obj, 1 / SCALE["granular"], dims="3D")
+        h_gran = b.smooth(sock(gran.outputs, "Distance"), 0.0, 0.30)
+        gran_cell = b.voronoi(obj, 1 / SCALE["granular"], feature="F1", dims="3D")
+        h_head = b.smooth(sock(b.voronoi(obj, 1 / SCALE["head"], randomness=0.75, dims="3D").outputs, "Distance"), 0.0, 0.22)
+        # oriented scales follow the body chains (body_st); their weights fade out at chain junctions
+        dvec = b.vec(b.math("DIVIDE", s, SCALE["dorsal_s"]), b.math("DIVIDE", t, SCALE["dorsal_t"]))
+        d_edge = b.smooth(sock(b.voronoi(dvec, 1.0).outputs, "Distance"), 0.0, 0.24)
+        d_cell = b.voronoi(dvec, 1.0, feature="F1")
+        across = b.math("SUBTRACT", b.math("DIVIDE", t, SCALE["dorsal_t"]), b._sep_y(sock(d_cell.outputs, "Position")))
+        keel = b.math("SUBTRACT", 1.0, b.math("MULTIPLY", b.math("ABSOLUTE", across), 3.5), clamp=True)
+        h_dors = b.math("MULTIPLY", d_edge, b.mixf(keel, 0.62, 1.0))
+        h_tail = b.brick(b.vec(t, s), SCALE["tail_t"], SCALE["tail_s"], 0.0018)          # whorls of rectangular scales
+        h_belly = b.brick(b.vec(b.math("ADD", t, 0.3), s), 0.6, SCALE["belly_row"], 0.0024, smooth=0.6, offset=0.0)
+        h_toe = b.brick(b.vec(b.math("ADD", t, 0.015), s), 0.03, SCALE["toe_row"], 0.0012, offset=0.0)
+        h_lip = b.brick(b.vec(osep.outputs[1], osep.outputs[2]), SCALE["lip_y"], SCALE["lip_z"], 0.0012, offset=0.0)
+        h = h_gran
+        for weight, pattern in ((w["w_dorsal"], h_dors), (w["w_tail"], h_tail), (w["w_belly"], h_belly),
+                                (w["w_head"], h_head), (w["w_foot"], h_toe), (w["w_lip"], h_lip), (w["w_mouth"], 0.55)):
+            h = b.mixf(weight, h, pattern)
+        amp = b.math("ADD", 1.0, b.math("ADD", b.math("MULTIPLY", w["w_dorsal"], 0.8),
+                                        b.math("ADD", b.math("MULTIPLY", w["w_belly"], 0.6), b.math("MULTIPLY", w["w_tail"], 0.4))))
+        amp = b.math("MULTIPLY", amp, b.math("SUBTRACT", 1.0, w["w_mouth"]))
+        bump = b.node("ShaderNodeBump")
+        sock(bump.inputs, "Strength").default_value = 1.0
+        sock(bump.inputs, "Distance").default_value = 0.0012
+        b.link(b.math("MULTIPLY", h, amp), sock(bump.inputs, "Height"))
+        cell_rand = b._sep_r(sock(gran_cell.outputs, "Color"))
 
     # --- albedo: palette skin, countershading, belly, lips, gums, per-scale tint, groove darkening
     skin = b.node("ShaderNodeRGB")
@@ -197,7 +213,7 @@ def body_skin():
     b.link(obj, sock(blotch.inputs, "Vector"))
     sock(blotch.inputs, "Scale").default_value = 4.0
     tint = b.math("MULTIPLY", b.mixf(sock(blotch.outputs, "Fac"), 0.88, 1.12),
-                  b.mixf(b._sep_r(sock(gran_cell.outputs, "Color")), 0.92, 1.08))
+                  b.mixf(cell_rand, 0.92, 1.08))
     col = b.mulc(skin.outputs[0], b.math("MULTIPLY", counter, tint))
     belly = b.node("ShaderNodeRGB")
     belly.outputs[0].default_value = lin(PAL["belly"]["hex"])
@@ -381,10 +397,11 @@ def cornea():
     return b.finish(mix.outputs[0])
 
 
-def build_all(palette=None, stripes=None, prefix=None):
+def build_all(palette=None, stripes=None, prefix=None, geo_scales=False):
     """palette: dict key -> {"hex": ...} overriding the shared palette (keys skin, belly, horn, claw, eye,
     membrane, tooth, gum, tongue; optional horn_base/horn_tip/claw_base/claw_tip). stripes: see STRIPES."""
-    global STRIPES, PFX
+    global STRIPES, PFX, GEO_SCALES
+    GEO_SCALES = geo_scales
     if palette:
         PAL.update(palette)
     STRIPES = stripes

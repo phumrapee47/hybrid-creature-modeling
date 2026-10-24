@@ -1,7 +1,7 @@
 {
   "name": "hybrid-creature-modeling",
   "description": "สร้างโมเดล 3D สิ่งมีชีวิต (มังกร ไดโนเสาร์ สัตว์ประหลาด) ใน Blender ด้วย Python ตาม hybrid pipeline ที่ชนะ benchmark 5 วิธี: loft คุมสัดส่วน, voxel fuse, sculpt แบบ closed-loop, inserts (ตา ฟัน ลิ้น เขา กรงเล็บ ปีก), shader เกล็ดตามแกนลำตัว และ game mesh พร้อม bake",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": {
     "name": "phumrapee47"
   }

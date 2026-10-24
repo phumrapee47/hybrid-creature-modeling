@@ -149,6 +149,8 @@ class Creature:
     eye = None                      # dict(radius, sink, lid_up=(tilt, cap), lid_lo=(tilt, cap))
     hipoly_subdiv = 1               # Catmull-Clark levels applied after the secondary sculpt (the high-poly stage)
     anatomy_fillet = 14             # cavity-fillet iterations after the anatomy volumes are fused (base fillet: 30)
+    scales = None                   # geometric scales (Phase B): None = shader-only scales; True or a dict of overrides
+                                    # for scale_field.DEFAULTS (sizes for a ~3 m creature; "size_scale" rescales them)
     hipoly_phases = ("tertiary",)   # stroke phases sculpted on the high-poly mesh instead of the base mesh
 
     def __init__(self):
@@ -593,7 +595,36 @@ def body_fields(cr, me, w_mouth, w_lip):
     m_spine, m_toe = member * is_spine, member * is_toe
     w_up = np.where(is_spine, 0.5 + 0.5 * cos_up, 0.5 + 0.5 * r[:, 2])
     w_head = (1.0 - smoothstep(cr.head_y[0], cr.head_y[1], c[:, 1])) * smoothstep(cr.head_z[0], cr.head_z[1], c[:, 2])
-    attrs = {"w_up": w_up,
+    # girth-normalised coordinates for scales that must shrink with the body (neck, tail): R(s) = median distance
+    # from the spine axis in 2 cm bins, smoothed; body_u = integral of R_REF / R ds (metres at reference girth)
+    # (per chain group: the spine, and limbs so scales also shrink from thigh to ankle; left/right chains share s)
+    R_REF = 0.12
+    girth, body_u = np.ones(n), b_s.copy()
+    for g_name, bin_w, f_min in (("spine", 0.02, 0.4), ("front", 0.01, 0.5), ("hind", 0.01, 0.5), ("arm", 0.015, 0.5)):
+        if g_name not in groups:
+            continue
+        in_g = b_group == groups.index(g_name)
+        sp = in_g & (member > 0.5)
+        if sp.sum() < 100:
+            continue
+        edges = np.arange(0.0, b_s[sp].max() + bin_w, bin_w)
+        idx = np.clip(np.digitize(b_s[sp], edges) - 1, 0, len(edges) - 1)
+        med = np.array([np.median(best[sp][idx == i]) if (idx == i).any() else np.nan for i in range(len(edges))])
+        ok = ~np.isnan(med)
+        med = np.interp(edges, edges[ok], med[ok])
+        med = np.convolve(np.pad(med, 3, mode="edge"), np.ones(7) / 7, mode="valid")
+        f = np.clip(med / R_REF, f_min, 1.3)
+        U = np.concatenate([[0.0], np.cumsum(bin_w / f[:-1])])
+        girth = np.where(in_g, np.interp(b_s, edges, f), girth)
+        body_u = np.where(in_g, np.interp(b_s, edges, U), body_u)
+    is_limb = np.isin(b_group, [groups.index(g) for g in ("front", "hind", "arm") if g in groups])
+    outward = np.sign(c[:, 0]) * r[:, 0]
+    w_limb = member * is_limb * smoothstep(0.15, 0.55, outward) * smoothstep(0.08, 0.2, c[:, 2])
+    w_limbdir = member * is_limb                                  # oriented limb scales all around the limb
+    for name, val in (("girth", girth), ("body_u", body_u)):          # unclipped scale coordinates
+        a_ = me.attributes.get(name) or me.attributes.new(name, "FLOAT", "POINT")
+        a_.data.foreach_set("value", val.astype(np.float32))
+    attrs = {"w_up": w_up, "w_limb": w_limb, "w_limbdir": w_limbdir,
              "w_dorsal": smoothstep(0.30, 0.55, cos_up) * m_spine * (1 - w_head),
              "w_belly": smoothstep(math.cos(rad(57)), math.cos(rad(43)), -cos_up) * m_spine * (1 - w_mouth),
              "w_head": w_head * (1 - w_mouth),
@@ -604,7 +635,8 @@ def body_fields(cr, me, w_mouth, w_lip):
         a = me.attributes.get(name) or me.attributes.new(name, "FLOAT", "POINT")
         a.data.foreach_set("value", np.clip(val, 0, 1).astype(np.float32))
     st = me.attributes.get("body_st") or me.attributes.new("body_st", "FLOAT_VECTOR", "POINT")
-    st.data.foreach_set("vector", np.stack([b_s, t_coord, np.zeros(n)], 1).astype(np.float32).ravel())
+    t_dorsal = np.arccos(np.clip(cos_up, -1, 1)) * best   # arc distance from the chain's dorsal line (osteoderm rows)
+    st.data.foreach_set("vector", np.stack([b_s, t_coord, t_dorsal], 1).astype(np.float32).ravel())
     return {k: int((v > 0.5).sum()) for k, v in attrs.items()}
 
 
@@ -714,11 +746,13 @@ def bake_maps(cr, high, low, ov, sizes):
     return rec
 
 
-def build_game_mesh(cr, high, col, ov, sizes, src=None):
+def build_game_mesh(cr, high, col, ov, sizes, src=None, sample=None):
     """Retopology gate / decimate from `src` (the secondary-form mesh, much lighter than the high-poly) and
     bake from `high`. The deviation gate is measured against the high-poly surface."""
     src = src or high
-    sample = sd.coords(high.data)[::max(8, len(high.data.vertices) // 120000)]
+    scaled = sd.coords(high.data)[::max(8, len(high.data.vertices) // 120000)]
+    if sample is None:  # gate against the surface the low mesh must follow (pre-scale when scales are geometry)
+        sample = scaled
     regions = cr.regions()
     rec = {}
     q = duplicate(src, cr.prefix + "Body_QF", col)
@@ -749,6 +783,8 @@ def build_game_mesh(cr, high, col, ov, sizes, src=None):
         low.data.calc_loop_triangles()
         rec["decimate"] = {"ratio": round(ratio, 4), "triangles": len(low.data.loop_triangles),
                            "seconds": round(time.perf_counter() - t, 2), "deviation": deviation(sample, low, regions)}
+        if scaled is not sample:  # informative: scale relief the normal map must carry
+            rec["decimate"]["deviation_to_scaled_surface"] = deviation(scaled, low, regions)["all"]
     low.name = low.data.name = cr.prefix + "Body"
     for a in [a.name for a in low.data.attributes if a.name == "body_st" or a.name.startswith("w_")]:
         low.data.attributes.remove(low.data.attributes[a])
@@ -780,7 +816,7 @@ def build(cr, out_dir):
     bpy.context.preferences.filepaths.save_version = 0
     for o in list(bpy.data.objects):
         bpy.data.objects.remove(o)
-    mats = dm.build_all(palette=cr.palette, stripes=cr.stripes, prefix=cr.prefix + "M_")
+    mats = dm.build_all(palette=cr.palette, stripes=cr.stripes, prefix=cr.prefix + "M_", geo_scales=bool(cr.scales))
     scene = bpy.context.scene
     settings = camera_setup.load_settings()
     col = camera_setup.ensure_collection(settings["collections"]["model"], scene)
@@ -911,6 +947,13 @@ def build(cr, out_dir):
         log["strokes_off_target"] = [(s["label"], s["target_mm"], s["achieved_mm"]) for s in log["strokes"]
                                      if s["target_mm"] and not 0.7 * s["target_mm"] <= s["achieved_mm"] <= 1.6 * s["target_mm"]]
         cr.mark("hipoly_sculpted")
+    pre_scale = None
+    if cr.scales:                            # Phase B: Level 1 plates + Level 2 scales as real displacement
+        import scale_field
+        pre_scale = sd.coords(high.data)[::max(8, len(high.data.vertices) // 120000)]
+        log["scales"] = scale_field.apply(high.data, cr.scales if isinstance(cr.scales, dict) else None)
+        high.data.update()
+        cr.mark("scales_displaced")
 
     ctx = {"tree": tree, "prof": prof, "eye_ref": eye_ref, "info": cr.info, "rng": np.random.default_rng(6), "high": high}
     parts = []
@@ -943,7 +986,7 @@ def build(cr, out_dir):
     cr.mark("highres_saved")
 
     sizes = {k: 512 for k in cr.bake} if DRY_RUN else cr.bake
-    low, rec = build_game_mesh(cr, high, col, ov, sizes, src=mid)
+    low, rec = build_game_mesh(cr, high, col, ov, sizes, src=mid, sample=pre_scale)
     bpy.data.objects.remove(mid)
     low.parent = root
     log["game_mesh"] = rec

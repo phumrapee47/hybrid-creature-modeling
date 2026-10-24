@@ -26,7 +26,8 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
 3. **Archive every full run** that you replace (`iterations/v1`, `v2`, ...) with its log, and keep the previous versions' files.
 4. **Disclose substitutions.** If a requested technique is replaced (e.g. a shader instead of sculpted scales, Decimate instead of retopology), say so in the report.
 5. **No installs, paid services, uploads or downloads without the user's explicit approval.** AI generation services are an optional side path (see the last section).
-6. **Anatomy is checked as data, not by eye.** An open mouth exposes what a closed one hid. Measure head, jaw, limb and digit relations with numbers (checklist in step 1).
+6. **Model against references, not from memory.** Before modelling, find the most realistic existing models of the creature and of the real animals it borrows from, and compare every iteration against them (step R). Internal gates only compare a model with its own previous version.
+7. **Anatomy is checked as data, not by eye.** An open mouth exposes what a closed one hid. Measure head, jaw, limb and digit relations with numbers (checklist in step 1).
 
 ## Bundled files
 
@@ -51,6 +52,8 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
   - `material_palette.py`: the shared palette.
 - `examples/raptor/`: **start here.** A bipedal raptor built with the kit (about 230 lines of data and builders) plus its settings, close-up views, renders and log. It was built correctly on the first dry run.
 - `examples/dragon/`: **the benchmark dragon on the kit**, with the anatomy layer (26 volumes per side), the high-poly stage, wings, and settings with reference-style close-up views. Use it for any winged or quadruped creature.
+- `scripts/scale_field.py`: **geometric scales** (Phase B). Level 1 plates and Level 2 scales are displacement of the high-poly surface, driven by the body fields. Turn them on with `Creature.scales = True` or a dict of overrides (step 7b).
+- `scripts/reference_search.py`: finds realistic 3D models by other people to use as reference (step R). It reads public Sketchfab metadata anonymously, downloads nothing, and writes a candidate list plus a thumbnail contact sheet.
 - `scripts/quality_metrics.py`: geometry-only measurements. Shader bump and normal maps are invisible to it.
   - mesh resolution;
   - relief bands: fine, medium, secondary;
@@ -60,6 +63,7 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
 
 ## Quick start: a new creature
 
+0. Gather references (step R): 2–3 realistic sculpts of the same kind of creature and 2–3 scans of the real animals it borrows from. Write the gap list before writing any data.
 1. Copy `examples/raptor/` into the user's project folder (keep it a short path on Windows). Set the environment variable `CREATURE_KIT_DIR` to this skill's `scripts/` folder, then rename the class, `name` and `prefix`. Outputs go next to the creature script, never into the skill folder.
 2. Write the data in this order:
    - the spine (snout to tail tip);
@@ -79,6 +83,89 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
 4. Settings JSON: the reference bbox, camera framing for the creature's size, a collection name, and 8 `detail_views` that target its own inserts.
 5. Set `CREATURE_OUT_DIR` to a working folder: the high-poly file is about 300 MB, and builds must never write into the skill folder. Run `CREATURE_DRY_RUN=1 blender -b --factory-startup --python my_creature.py`. Then render previews with `CREATURE_SETTINGS=<json>` at 24 samples. Look at them, fix the data, and repeat.
 6. GUI run, then the full renders, `inspect_model.py`, review, and archive or iterate.
+
+## R. References: compare with the best existing models
+
+Building from the prompt alone gives forms that are plausible but generic. In the benchmark, the Phase B dragon gained real anatomy and geometric scales and met most of its internal gates, yet next to a professional sculpt it read as slender and toy-like:
+- stilt legs;
+- a domed head;
+- small wings;
+- shallow scales that ignored the body's rows.
+
+Only a reference shows what "realistic" means for each region.
+
+**Two kinds of reference, both required:**
+
+| Kind | What it gives | Where to find it |
+|---|---|---|
+| Real animals | Ground truth for anatomy, skin folds, scale size and rows, and how scales wrap muscles | Museum scans on Sketchfab (Natural History Museum Vienna, witmerlab, UF Herpetology, RISD Nature Lab), Smithsonian 3D, MorphoSource |
+| Artist sculpts | The production bar for a fantasy creature: mass, plate design, horn sets, wing membranes | Sketchfab staff picks and most-liked sculpts in Characters & Creatures; ArtStation |
+
+For a dragon, the real animals are crocodilians (dorsal scutes, flank rows, belly plates), monitor lizards (neck folds, bead scales), bats (wing membrane, finger bones), and big cats or horses (limb mass).
+
+**1. Find.** Run the search script:
+```
+python scripts/reference_search.py --out <work>/refs --kind artist --query dragon wyvern "dragon sculpt"
+python scripts/reference_search.py --out <work>/refs --kind real --query "komodo dragon" crocodile alligator
+```
+- It writes `reference_candidates_<kind>.json` and an `.html` contact sheet.
+- The built-in browser may refuse `file://` pages. Serve the folder instead (`python -m http.server 8765 --directory <work>/refs`) and open `http://localhost:8765/`.
+- The rank is popularity and polycount, not realism. Filter by eye: drop stylised models, humanoid "dragon girls", props and packs.
+
+**2. Choose** 2–3 of each kind:
+- the same body plan (four legs plus wings, wyvern, or serpent);
+- realistic, not stylised;
+- at least about 1M faces for sculpts, so close-ups hold;
+- clay or a neutral material if possible, so the forms show.
+
+**3. Look closely** in the browser, at the regions of your own close-up views:
+- Open `https://sketchfab.com/models/<uid>/embed?autostart=1&ui_infos=0&ui_controls=0&ui_watermark=0&ui_hint=0` and wait about 20 s for the model to load.
+- Double-click a part to orbit around it, then scroll to zoom.
+- Capture full body, head, flank and shoulder, back, belly, limbs, wing and tail.
+- Copy the screenshots to `<work>/refs/captures/<kind>_<model>_<region>.jpg`.
+
+**4. Record** each reference in `<work>/refs/references.json`:
+- name, author, URL, licence, kind;
+- captures;
+- observations per region, in words.
+
+**5. Write the gap list:** per region, what the references have that the model lacks.
+- Give each gap a measurable target where possible, for example "each wing at least as long as snout-to-hip", "flank scales in rows along the body rings", or "8–12 neck folds".
+- Proportion gaps go into the data (step 1), never into the sculpt.
+- The gap list is the next iteration's work list, ordered by how much each gap changes the read at 3 m.
+
+**Result on the dragon (step R v1).** Gaps 1–2 were fixed in the data, measured on the high-poly mesh:
+- forearm and shin +26–31%;
+- tail base +21–26%;
+- neck +14%;
+- elbows 6 cm and knees 4 cm further out;
+- wing reach 0.90 → 1.08× snout-to-hip;
+- membrane area +43%, with knuckled bones and wrinkles.
+
+Anatomy anchors and strokes follow the moved limbs through `follow_limbs`.
+
+**Gap 3, the head (step R v2):**
+- brow overhang past the eye 14 → 26 mm (target 30 missed);
+- dome index 0.73 → 0.57;
+- head added form p90 7.6 → 11.4 mm;
+- a crown of 3 horns and 3 jaw spikes per side.
+
+**Head pass 2 (step R v3):**
+- main horns straightened: bend 0.21 → 0.02, 29° above horizontal, base radius 34 → 49 mm;
+- head scales 13 → 9 mm and top plates 28 → 17 mm (dragon `scales` override), so the bony ridges read.
+
+Still short of the reference: the brow (26 mm, target 30) and smaller, fewer crown spikes. Plates still cover the ridges, only smaller; there is no curvature mask.
+
+**Rules:**
+- **Reference, never copy.** Do not trace, import or reproduce a reference's geometry, textures or distinctive design. Take principles: proportions, how forms work, scale size and flow.
+- **Viewing is free; downloading is not.** Viewing a public model in the browser is fine. Downloading a model file needs all three:
+  - the user's approval;
+  - a licence that allows it;
+  - on Sketchfab, the user's own account. Never log in for them.
+
+  Models that are editorial, store-only or without a download licence are view only.
+- **Captures are third-party work.** Keep them in the working folder. Never commit them to a public repository or publish them; link to the model page with author and licence instead. Credit the authors in the report.
+- **Measured comparison is not built yet.** Running `quality_metrics.py` on a downloaded reference mesh is untested. Until it is tested, comparisons are visual, and any reference proportion read off a screenshot must be called an estimate.
 
 ## 0. Environment and run modes
 
@@ -335,6 +422,51 @@ Look rules from the review iterations:
   - Translucent mix of 0.3. Judge it against a back light.
 - Keep palette colours as the base for every material, and add new palette keys explicitly (for example tooth, gum, tongue).
 
+## 7b. Geometric scales (Phase B): Levels 1–2 as real geometry
+
+Shader-only scales vanish in clay and leave the silhouette smooth. With `Creature.scales` set, `scale_field.apply` displaces the high-poly surface after the tertiary sculpt.
+
+**Cells.** Every scale is a cell of a jittered Worley lattice:
+- oriented scales use girth-normalised body coordinates: `body_u` integrates `ds / girth` along each chain, and `t / girth` runs around it, so scales shrink with the body toward the neck, tail tip and ankles;
+- isotropic scales use object space.
+
+**Edge distance needs two passes:**
+1. find the nearest feature point;
+2. take the minimum bisector distance over the points around *that point's* cell.
+
+The one-pass "second-nearest" shortcut jumps by half a cell and would tear the surface. Unit-test continuity with `max |Δedge| ≈ sample spacing` before any build.
+
+**Profiles:**
+
+| Profile | Shape |
+|---|---|
+| **Pillow** | Rounded edges falling into the groove |
+| **Shingle** | Rises toward the posterior (+s: tail-ward, or distal on limbs) edge and drops steeply there, so rows read as overlapping. Normal displacement cannot undercut: overlap is approximated, so say so |
+| **Keel** | A ridge along the scale's long axis |
+
+Each cell also gets ±15% random height.
+
+**Default layers** (for a 3 m creature; `size_scale` rescales them):
+
+| Level | Region (weight) | Pattern | Size | Height |
+|---|---|---|---|---|
+| 2 | Everywhere (base) | Granular, 3D | 10 mm | 1.5 mm |
+| 2 | Limbs, all round (`w_limbdir`) | Oriented rows overlapping distally | 16 × 14 mm | 1.5 mm |
+| 1 | Outer limbs (`w_limb`) | Oriented plates | 28 × 24 mm | 2.6 mm |
+| 2 | Back and neck (`w_dorsal`) | Keeled imbricate | 24 × 20 mm | 2.6 mm |
+| 1 | Paravertebral rows (dorsal arc 12–85 mm × girth) | Keeled osteoderms | 44 × 32 mm | 5 mm |
+| 1 | Belly (`w_belly`) | Transverse plates in rows | 34 mm rows | 2.2 mm |
+| 2 | Tail (`w_tail`) | Staggered whorls | 20 × 18 mm | 2 mm |
+| 2 + 1 | Head (`w_head`) | Plates; large cranial plates on top | 13 mm; 28 mm | 1.5 mm; 3 mm |
+| 2 | Toes (`w_foot`) | Transverse scutes | 10 mm rows | 1.2 mm |
+| 2 | Lips (`w_lip`) | Labial scales | 12 × 11 mm | 1 mm |
+| – | Mouth (`w_mouth`) | None | – | – |
+
+**Rules:**
+- **Resolution:** at the 1.6 mm high-poly, Level 2 scales smaller than about 8 mm turn to mush. Leave those to Level 3 (shader).
+- **Material:** with geometric scales the material switches to `GEO_SCALES` mode. Colour, groove darkening and roughness read the real `scale_h` and `scale_tint`, and the bump carries only Level 3 micro relief (0.35 mm). Shader patterns no longer fight the geometry.
+- **Game mesh:** it is built from the pre-scale mesh, and the scales go into its normal map. The deviation gate therefore measures against the **pre-scale** surface; the log also records the deviation to the scaled surface, for information.
+
 ## 8. Game version
 
 1. **Retopology gate:** QuadriFlow (target about 12k faces) plus shrinkwrap. Accept it only if every region (head, toes, tail, wing arm, rest) stays within **max 12 mm and mean 2 mm** of the sculpt. QuadriFlow silently lost the tail and fingers in the benchmark; the gate caught it.
@@ -379,14 +511,21 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
    - lowest z ≥ 0.
 5. **Render the 8 standard views** with the identical rig: front and side ortho clay, three-quarter material, head close-up, wireframe, silhouette, three-quarter clay, rear three-quarter.
 6. **Render clay close-ups first** (`render_details.py --clay`): head, shoulder and wing, forelimb, hind limb, flank. Then render the 8 material close-ups: eye, open mouth, flank scales, belly, forefoot, back-lit wing, tail, horn. Camera targets come from the model's own inserts, so before/after shots frame the same part.
-7. **Look at every image yourself.** Build contact sheets and before/after sheets (previous version vs new). Ask:
+7. **Compare with the references** (step R). Put each clay close-up next to the reference capture of the same region: `make_contact_sheet.py --images ours.png ref.jpg ... --labels ...`. Per region, check:
+   - mass and silhouette;
+   - secondary forms (muscles, folds);
+   - scale size and flow;
+   - plates and spikes.
+
+   Update the gap list. A region that passes every internal gate but still loses clearly to the reference is not done.
+8. **Look at every image yourself.** Build contact sheets and before/after sheets (previous version vs new). Ask:
    - Do the jaws match?
    - Do the scales read as scales at 1 m, not as noise or cracks?
    - Is anything floating, intersecting, or below the floor?
    - Do the patterns have seams at the junctions?
    - Is the iris lit?
    - Do the veins read as veins?
-8. Fix the top 1–3 defects. Archive the replaced run in `iterations/vN`. Repeat.
+9. Fix the top 1–3 defects, taken from the reference gap list first. Archive the replaced run in `iterations/vN`. Repeat.
 
 ## 10. Pitfalls already paid for
 
@@ -420,6 +559,14 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
 | Muscles look like stuck-on ovals | Cross-section too deep (steep sides) | `depth` 0.45, two-stage fusion with an anatomy fillet |
 | Anatomy volumes vanish after fusion | Base fillet (30 iterations) smoothed their separations | Fuse the volumes after the base fillet |
 | Relief metric unchanged although the clay shows muscles | Whole-body smoothing percentile is dominated by thin parts | Added form against `<name>_primary.blend`, per region |
+| Scales tear along lines | One-pass Worley edge distance ("second nearest") is discontinuous | Two-pass edge distance; test continuity numerically |
+| Tail scales the same size at the tip as at the base | Lattice in raw arc length | Girth-normalised `body_u` and `t / girth` per chain group |
+| Limb scales look like cracked leather | Isotropic cells on limbs | Oriented rows along the limb chain, overlapping distally |
+| Game mesh "deviates" by up to 9 mm after scales | Gate measured against the scaled surface | Gate against the pre-scale surface; scales live in the normal map |
+| A wing "looked" 0.6x the body next to a reference; measured, it was 0.9x | Proportions read off a perspective screenshot | Measure your own model (sections, reach, area) before and after; call reference numbers estimates |
+| Thicker or re-posed limbs leave anatomy volumes and strokes behind | Anchors are absolute points | Keep the old chain as `*_B3`, derive the new one, and carry nearby anchors with it (`follow_limbs` in the dragon example) |
+| Dark marks on a membrane after raising its grid density | Patches sharing an edge sampled it differently (48 vs 36), so `remove_doubles` could not weld the seam and the sheets overlapped | Sample shared edges with one count (`N_FINGER`, `N_ARM` in the dragon); check layering by ray-counting sheets along the normal |
+| A stronger brow only made the skull more domed | The brow bump sat at 55° from horizontal, above the eye, so it raised the top | Put the brow edge just above the eye (38° for an eye at 16°) and measure the overhang past the eye |
 | A tooth root lands outside the cheek | A widened cheek moved the jaw-width ray | Bound the tooth row by the inner cheek wall (kit does this) |
 
 ## 11. Reporting

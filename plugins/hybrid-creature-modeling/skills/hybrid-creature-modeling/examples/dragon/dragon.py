@@ -7,6 +7,11 @@ stays unchanged as the long-form reference). New here:
     iliac crest, quadriceps, hamstrings, gastrocnemius, patella, caudofemoralis, Achilles and flexor tendons,
     dorsal flight muscle. They replace the Exp 6 Inflate/Clay "muscle" strokes listed in REPLACED_BY_ANATOMY.
   * high-poly stage (kit): tertiary folds are sculpted on the subdivided mesh.
+  * step R v1 (reference comparison): heavier limbs, neck and tail base, sprawled elbows and knees, wings 1.2x with
+    thicker knuckled bones and wrinkled membranes. The Phase B v3 values stay in the data as *_B3 for comparison.
+  * step R v2 (reference gap 3, the head): flatter, angular cranium, heavy brow over the eye, cheek and jaw plates,
+    a crown of horns behind the main horns, spikes under the jaw, thicker main horns.
+  * step R v3: main horns thick, swept back and nearly straight; smaller head scales and plates between the ridges.
 
   GUI:     blender --factory-startup --window-geometry 0 0 1400 1000 --python dragon.py
   Dry run: CREATURE_DRY_RUN=1 blender -b --factory-startup --python dragon.py
@@ -59,10 +64,19 @@ _HEAD_PTS = [(0, -1.165, 1.168), (0, -1.135, 1.174), (0, -1.05, 1.180), (0, -0.9
              (0, -0.845, 1.222), (0, -0.785, 1.218), (0, -0.745, 1.206), (0, -0.722, 1.198)]
 # v2: snout stations 1-2 slimmer and less boxy (v1/Exp 5: 0.044/0.040/0.030 n2.6, 0.056/0.046/0.036 n3.2 read as a
 # bulbous knob overhanging the jaw once the mouth was open)
+_HEAD_SHAPES_B3 = [(0.012, 0.012, 0.012, 2.0, 0.0, 0.0, 0.0), (0.038, 0.034, 0.028, 2.5, 0.0, 0.0, 0.0),
+                   (0.052, 0.044, 0.034, 2.8, 0.0, 0.0, 0.0), (0.066, 0.056, 0.040, 3.0, 0.006, 0.004, 0.0),
+                   (0.086, 0.082, 0.050, 2.8, 0.042, 0.010, 0.006), (0.108, 0.096, 0.064, 2.6, 0.014, 0.034, 0.010),
+                   (0.104, 0.090, 0.070, 2.4, 0.004, 0.030, 0.008), (0.070, 0.066, 0.058, 2.2, 0.0, 0.006, 0.0),
+                   (0.008, 0.008, 0.008, 2.0, 0.0, 0.0, 0.0)]
+# Step R v2. Measured on the R v1 high-poly: dome index 0.73 (cranium height above the eye / half-width at eye level),
+# brow 14 mm past the eye; the reference skull is low and angular with a heavy brow shading the eye. Cranium top
+# (ap) lowered 12-17 % at stations 4-7, brow bump (index 4, 55 deg) raised and carried back over the temple, midline
+# top bump (index 6) made a shallow groove between the brows; widths, jaw-side depths (an) and exponents unchanged so the mouth profile is untouched.
 _HEAD_SHAPES = [(0.012, 0.012, 0.012, 2.0, 0.0, 0.0, 0.0), (0.038, 0.034, 0.028, 2.5, 0.0, 0.0, 0.0),
-                (0.052, 0.044, 0.034, 2.8, 0.0, 0.0, 0.0), (0.066, 0.056, 0.040, 3.0, 0.006, 0.004, 0.0),
-                (0.086, 0.082, 0.050, 2.8, 0.042, 0.010, 0.006), (0.108, 0.096, 0.064, 2.6, 0.014, 0.034, 0.010),
-                (0.104, 0.090, 0.070, 2.4, 0.004, 0.030, 0.008), (0.070, 0.066, 0.058, 2.2, 0.0, 0.006, 0.0),
+                (0.052, 0.044, 0.034, 2.8, 0.0, 0.0, 0.0), (0.066, 0.056, 0.040, 3.0, 0.026, 0.004, 0.0),
+                (0.086, 0.076, 0.050, 2.8, 0.058, 0.010, -0.006), (0.108, 0.080, 0.064, 2.6, 0.040, 0.040, -0.008),
+                (0.104, 0.076, 0.070, 2.4, 0.012, 0.036, -0.004), (0.070, 0.058, 0.058, 2.2, 0.0, 0.006, 0.0),
                 (0.008, 0.008, 0.008, 2.0, 0.0, 0.0, 0.0)]
 # v2 lower jaw. The Exp 2 jaw ended 4.7 cm (5.3 cm scaled) behind the snout tip and was 59-69 % of the upper jaw's
 # width: invisible with the mouth closed, wrong once open. Reptile mandibles (crocodilians, monitors) reach the snout
@@ -72,9 +86,18 @@ _JAW_PTS = [(0, -1.152, 1.134), (0, -1.128, 1.130), (0, -1.05, 1.127), (0, -0.97
             (0, -0.815, 1.150), (0, -0.79, 1.158)]
 _JAW_SHAPES = [(0.012, 0.010, 0.010, 2.0), (0.034, 0.018, 0.016, 2.6), (0.048, 0.020, 0.022, 2.8), (0.058, 0.023, 0.028, 2.7),
                (0.078, 0.027, 0.036, 2.6), (0.094, 0.034, 0.050, 2.4), (0.012, 0.012, 0.012, 2.0)]
-_HORN_PTS = [(0.042, -0.80, 1.265), (0.058, -0.755, 1.315), (0.083, -0.67, 1.352), (0.103, -0.575, 1.36),
-             (0.115, -0.495, 1.335), (0.119, -0.45, 1.295)]
-_HORN_R = [0.030, 0.026, 0.019, 0.012, 0.006, 0.001]
+_HORN_PTS_B3 = [(0.042, -0.80, 1.265), (0.058, -0.755, 1.315), (0.083, -0.67, 1.352), (0.103, -0.575, 1.36),
+                (0.115, -0.495, 1.335), (0.119, -0.45, 1.295)]
+# R v3: the B3 horn rose and curled down at the tip like a goat's. The reference horns are thick, swept back and
+# nearly straight: about 29 deg above the horizontal, slope 0.69 -> 0.50 -> 0.56 along the length (a slight lift)
+_HORN_PTS = [(0.042, -0.80, 1.262), (0.056, -0.745, 1.300), (0.074, -0.665, 1.345), (0.090, -0.585, 1.385),
+             (0.102, -0.515, 1.420), (0.110, -0.465, 1.448)]
+_HORN_R = [0.044, 0.038, 0.030, 0.021, 0.012, 0.002]   # R v3: thick to near the tip (R v2: 0.036 ... 0.007; B3: 0.030 ... 0.006)
+# R v2 horn crown: smaller horns on the back rim of the skull, behind and below the main horns and above the ear
+# (ear opening at 8 deg up, y -0.775): (y, degrees up from lateral, length) in head coordinates
+CROWN = [(-0.785, 36, 0.075), (-0.765, 24, 0.065), (-0.745, 32, 0.050)]   # dry run 1: 50/44/36 mm read as stubs
+# R v2 spikes under the lower jaw, behind the tooth rows: (y, z of the jaw axis, length)
+JAW_SPIKES = [(-0.90, 1.134, 0.045), (-0.86, 1.140, 0.055), (-0.82, 1.148, 0.048)]   # dry run 1: 28-34 mm
 
 
 def _scale_shape(sh):
@@ -99,12 +122,70 @@ HIND_SHAPES = [(0.125, 0.155, 0.155, 2.2), (0.115, 0.125, 0.145, 2.3), (0.100, 0
                (0.070, 0.065, 0.075, 2.2), (0.064, 0.060, 0.068, 2.2), (0.058, 0.056, 0.056, 2.2),
                (0.054, 0.056, 0.048, 2.3), (0.042, 0.046, 0.036, 2.2), (0.040, 0.050, 0.034, 2.2),
                (0.037, 0.040, 0.034, 2.2), (0.034, 0.034, 0.034, 2.2), (0.036, 0.032, 0.036, 2.2)]
-W_ROOT, W_E, W_W = V((0.07, -0.21, 0.80)), V((0.48, 0.02, 1.10)), V((0.86, -0.26, 1.40))
-W_TIPS = [V((1.32, -0.08, 1.52)), V((1.30, 0.30, 1.10)), V((1.04, 0.56, 0.86)), V((0.66, 0.60, 0.80))]
+# Step R v1. Next to a realistic sculpt and real reptile scans (skill step R), the Phase B dragon read as thin-limbed
+# with light wings. Measured on the B3 high-poly: forearm 11 cm and shin 10 cm thick at z = 0.2, tail 21 cm wide at
+# y = 0.8, wing reach 0.90x snout-to-hip, 0.95 m2 membrane per wing. Mass: lower limbs +30 %, upper limbs +10-20 %,
+# neck +15-20 %, tail +25 %. Stance: elbows 6 cm and knees 4 cm further out (reptilian sprawl); feet stay put.
+TRUNK_SHAPES_B3, FRONT_PTS_B3, FRONT_SHAPES_B3 = TRUNK_SHAPES, FRONT_PTS, FRONT_SHAPES
+HIND_PTS_B3, HIND_SHAPES_B3 = HIND_PTS, HIND_SHAPES
+TRUNK_GROW = [1.1, 1.2, 1.2, 1.15, 1.0, 1.0, 1.0, 1.0, 1.0, 1.07, 1.25, 1.27, 1.2, 1.1, 1.0]
+FRONT_GROW, FRONT_OUT = [1.0, 1.12, 1.2, 1.3, 1.3, 1.3, 1.3, 1.25, 1.2], [0.0, 0.02, 0.045, 0.06, 0.06, 0.055, 0.04, 0.02, 0.0]
+HIND_GROW = [1.0, 1.1, 1.2, 1.3, 1.3, 1.3, 1.3, 1.25, 1.25, 1.25, 1.2, 1.2]
+HIND_OUT = [0.0, 0.015, 0.03, 0.04, 0.04, 0.035, 0.025, 0.01, 0.0, 0.0, 0.0, 0.0]
+
+
+def _grow(shapes, factors):
+    return [tuple(v * f if i != 3 else v for i, v in enumerate(sh)) for sh, f in zip(shapes, factors)]
+
+
+def _out(pts, offsets):
+    return [(x + d, y, z) for (x, y, z), d in zip(pts, offsets)]
+
+
+TRUNK_SHAPES = _grow(TRUNK_SHAPES_B3, TRUNK_GROW)
+FRONT_PTS, FRONT_SHAPES = _out(FRONT_PTS_B3, FRONT_OUT), _grow(FRONT_SHAPES_B3, FRONT_GROW)
+HIND_PTS, HIND_SHAPES = _out(HIND_PTS_B3, HIND_OUT), _grow(HIND_SHAPES_B3, HIND_GROW)
+
+
+def follow_limbs(p):
+    """Carry a B3 point near a limb with the limb's new centre line (anatomy anchors, strokes); fades out 8-16 cm away."""
+    p = V(p)
+    for old, new in ((FRONT_PTS_B3, FRONT_PTS), (HIND_PTS_B3, HIND_PTS)):
+        best = None
+        for i in range(len(old) - 1):
+            a, b = V(old[i]), V(old[i + 1])
+            ab = b - a
+            t = max(0.0, min(1.0, (p - a).dot(ab) / ab.length_squared))
+            d = (p - (a + ab * t)).length
+            if best is None or d < best[0]:
+                best = (d, i, t)
+        d, i, t = best
+        w = max(0.0, min(1.0, (0.16 - d) / 0.08))
+        if w > 0:
+            p = p + (V(new[i]).lerp(V(new[i + 1]), t) - V(old[i]).lerp(V(old[i + 1]), t)) * w
+    return p
+
+
+# Wings: the reference wing is broad with heavy, knuckled finger bones. Chain 1.2x about the root (reach 0.90x ->
+# about 1.08x snout-to-hip), bones 1.25-1.35x, knuckles at two finger joints, wrinkles and folds in the membrane.
+WING_SCALE = 1.2
+W_ROOT = V((0.07, -0.21, 0.80))
+W_E_B3, W_W_B3 = V((0.48, 0.02, 1.10)), V((0.86, -0.26, 1.40))
+W_TIPS_B3 = [V((1.32, -0.08, 1.52)), V((1.30, 0.30, 1.10)), V((1.04, 0.56, 0.86)), V((0.66, 0.60, 0.80))]
+W_E, W_W = [W_ROOT + (q - W_ROOT) * WING_SCALE for q in (W_E_B3, W_W_B3)]
+W_TIPS = [W_ROOT + (q - W_ROOT) * WING_SCALE for q in W_TIPS_B3]
+BONE = 1.3                     # wing bone thickness factor (B3 = 1)
+# Patches that share an edge must sample it identically so remove_doubles welds them: N_FINGER along every finger
+# (finger panels and the inner membrane's finger-4 edge), N_ARM along the arm (inner and leading-edge patches).
+# Run 1 used 48 vs 36 and 44 vs 18: the unwelded seams overlapped and rendered as dark marks on the membrane.
+N_FINGER, N_ARM = 48, 44
+WRINKLE = (0.0022, 7, 0.008)   # membrane: wrinkle amplitude (m), wrinkles across a finger panel, fold amplitude (m)
+# (dry run 1: one 3 mm, 8-wave sine read as a pleated folding fan; two drifting frequencies read as slack skin)
 EYE_R = 0.02 * HEAD_SCALE
 TOE_TIPS = []    # (tip, direction, claw radius, claw length) on the left side
 TOE_CHAINS = []  # toe and palm centre lines (left side) for the body fields
-BROW, CHEEK = rad(55), rad(-15)
+# R v2: brow edge at 38 deg (B3: 55) so it shelves out over the eye (at 16 deg) instead of raising the dome
+BROW, CHEEK = rad(38), rad(-15)
 
 
 def finger_mid(T):
@@ -115,7 +196,7 @@ SPINE = [hx((0, -1.12, 1.18)), hx((0, -0.98, 1.17)), hx((0, -0.84, 1.18))] + [V(
 
 
 def S(brush, r, strength, view, pts, label, target=None, passes=1, mode="NORMAL"):
-    return sd.spec(brush, r, strength, view, pts, label, target=target, mode=mode, passes=passes)
+    return sd.spec(brush, r, strength, view, [follow_limbs(p) for p in pts], label, target=target, mode=mode, passes=passes)
 
 
 S1_JUNCTIONS = [
@@ -179,6 +260,7 @@ FRONT_IN, BACK_IN = dirn(-0.7, 0.7, 0), dirn(-0.7, -0.7, 0)   # rays arriving fr
 
 
 def vol(name, kind, a, b, width, protrude, **kw):
+    a, b = (follow_limbs(a[0]),) + tuple(a[1:]), (follow_limbs(b[0]),) + tuple(b[1:])
     return dict(name=name, kind=kind, a=a, b=b, width=width, protrude=protrude, **kw)
 
 
@@ -191,8 +273,12 @@ HEAD_TOL = 0.16  # head anchors aim from the skull axis, so the hit lies a half-
 
 ANATOMY_SPECS = [
     # skull landmarks (head coordinates scaled with the head)
-    vol("brow ridge", "ridge", head((0.0, -0.96, 1.262), 45), head((0.0, -0.865, 1.268), 45), 0.030, 0.020, tol=HEAD_TOL),
-    vol("zygomatic arch", "ridge", head((0.0, -0.93, 1.175), -5), head((0.0, -0.82, 1.18), -5), 0.022, 0.014, tol=HEAD_TOL),
+    # R v2: brow longer, heavier and lower (B3: -0.96 to -0.865, 45 deg, 30 x 20 mm), zygomatic arch 22 x 14 -> 32 x 22 mm
+    vol("brow ridge", "ridge", head((0.0, -0.975, 1.258), 34), head((0.0, -0.855, 1.262), 34), 0.040, 0.034, tol=HEAD_TOL),
+    vol("zygomatic arch", "ridge", head((0.0, -0.93, 1.175), -5), head((0.0, -0.82, 1.18), -5), 0.032, 0.022, tol=HEAD_TOL),
+    # (a postorbital bar behind the eye was tried in two dry runs and skipped both times: its path crosses the eye socket)
+    vol("angular plate", "ridge", (jaw_open(hx((0.0, -0.93, 1.131))), lateral(-40)), (jaw_open(hx((0.0, -0.83, 1.146))), lateral(-40)),
+        0.030, 0.016, tol=HEAD_TOL),
     vol("nasal ridge", "ridge", head((0.0, -1.10, 1.19), 70), head((0.0, -0.97, 1.23), 70), 0.016, 0.007, tol=HEAD_TOL),
     vol("parietal crest", "ridge", head((0.0, -0.85, 1.26), 70), head((0.0, -0.765, 1.24), 60), 0.020, 0.010, tol=HEAD_TOL),
     vol("masseter", "muscle", head((0.0, -0.865, 1.165), 0), head((0.0, -0.80, 1.135), -10), 0.034, 0.014, tol=HEAD_TOL),
@@ -230,12 +316,15 @@ ANATOMY_SPECS = [
 def build_wings(tree, arm_path, B):
     frames = pm.Part("DRG_WingFingers")
     frames.sweep([W_W + V((-0.03, 0.01, -0.02)), W_W + V((0.03, -0.01, 0.02))],
-                 [(0.032, 0.032, 0.032, 2.0), (0.030, 0.030, 0.030, 2.0)], "skin", N=14, step=0.012, start="tip", end="tip", tip=0.7)
+                 [(0.032 * BONE, 0.032 * BONE, 0.032 * BONE, 2.0), (0.030 * BONE, 0.030 * BONE, 0.030 * BONE, 2.0)],
+                 "skin", N=14, step=0.012, start="tip", end="tip", tip=0.7)
     fpaths = []
     for T in W_TIPS:
-        frames.sweep([W_W, finger_mid(T), T], [(0.019, 0.019, 0.019, 2.0), (0.014, 0.015, 0.015, 2.0), (0.004, 0.004, 0.004, 2.0)],
-                     "skin", N=12, step=0.025, start="cap", end="tip", tip=1.0,
-                     scale_fn=lambda s, L: 1.0 + 0.18 * math.exp(-((s / L - 0.42) / 0.06) ** 2))
+        b0, b1 = 0.019 * BONE * 1.04, 0.0145 * BONE * 1.04
+        frames.sweep([W_W, finger_mid(T), T], [(b0, b0, b0, 2.0), (b1, b1, b1, 2.0), (0.005, 0.005, 0.005, 2.0)],
+                     "skin", N=12, step=0.02, start="cap", end="tip", tip=1.0,
+                     scale_fn=lambda s, L: (1.0 + 0.26 * math.exp(-((s / L - 0.42) / 0.05) ** 2)      # knuckles
+                                            + 0.16 * math.exp(-((s / L - 0.70) / 0.04) ** 2)))
         fpaths.append(pm.Path([W_W, finger_mid(T), T]))
 
     memb = pm.Part("DRG_WingMembranes")
@@ -255,10 +344,18 @@ def build_wings(tree, arm_path, B):
         nn = (Ti - W_W).cross(Tj - W_W).normalized()
         sag = (nn if nn.z < 0 else -nn) * 0.035
 
-        def fn(u, v, i=i, depth=depth, toward=toward, sag=sag):
+        wa, wn, fa = WRINKLE
+
+        def fn(u, v, i=i, depth=depth, toward=toward, sag=sag, nn=nn):
             p = fpaths[i].point(u).lerp(fpaths[i + 1].point(u), v)
-            return p + toward * depth * math.sin(math.pi * v) * u ** 3 + sag * math.sin(math.pi * v) * math.sin(math.pi * u * 0.75)
-        memb.patch(fn, 16, 7, fpaths[i].length, (Ti - Tj).length, "membrane")
+            sv = math.sin(math.pi * v)
+            # wrinkles run from the wrist toward the trailing edge between the bones; a few broad folds across
+            wr = wa * (0.6 * math.sin(2 * math.pi * (wn * v + 0.6 * u * u + 0.21 * i))
+                       + 0.4 * math.sin(2 * math.pi * (1.73 * wn * v - 0.9 * u + 0.37 * i))) * min(1.0, 2.5 * u)
+            fold = fa * math.sin(2 * math.pi * (1.4 * u + 0.37 * i)) * u
+            return (p + toward * depth * sv * u ** 3 + sag * sv * math.sin(math.pi * u * 0.75)
+                    + nn * sv * (wr + fold))
+        memb.patch(fn, N_FINGER, 40, fpaths[i].length, (Ti - Tj).length, "membrane")
     T4 = W_TIPS[3]
     in_toward = (W_W - A.lerp(T4, 0.5)).normalized()
     nn = (T4 - W_W).cross(A - W_W).normalized()
@@ -268,13 +365,16 @@ def build_wings(tree, arm_path, B):
         c0, c1 = arm(u), A.lerp(T4, u) + in_toward * 0.16 * (T4 - A).length * math.sin(math.pi * u)
         d0, d1 = body_line.point(v), fpaths[3].point(v)
         bil = B * (1 - u) * (1 - v) + W_W * u * (1 - v) + A * (1 - u) * v + T4 * u * v
-        return (1 - v) * c0 + v * c1 + (1 - u) * d0 + u * d1 - bil + in_sag * math.sin(math.pi * u) * math.sin(math.pi * v)
-    memb.patch(inner, 18, 16, (W_W - B).length, (A - B).length, "membrane")
+        suv = math.sin(math.pi * u) * math.sin(math.pi * v)
+        wr = (WRINKLE[0] * (0.6 * math.sin(2 * math.pi * (7 * u + 0.5 * v)) + 0.4 * math.sin(2 * math.pi * (11.3 * u - 0.8 * v)))
+              + WRINKLE[2] * 0.7 * math.sin(2 * math.pi * (1.2 * v + 0.2)))
+        return (1 - v) * c0 + v * c1 + (1 - u) * d0 + u * d1 - bil + in_sag * suv + nn.normalized() * suv * wr
+    memb.patch(inner, N_ARM, N_FINGER, (W_W - B).length, (A - B).length, "membrane")
 
     def front(u, v):
         lead = B.lerp(W_W, u) + (W_E - B.lerp(W_W, 0.5)).normalized() * 0.05 * math.sin(math.pi * u)
         return lead.lerp(arm(u), v)
-    memb.patch(front, 18, 4, (W_W - B).length, 0.1, "membrane")
+    memb.patch(front, N_ARM, 4, (W_W - B).length, 0.1, "membrane")
     memb.pack_uvs()
     bmesh.ops.remove_doubles(memb.bm, verts=memb.bm.verts[:], dist=1e-5)
     bmesh.ops.dissolve_degenerate(memb.bm, dist=1e-6, edges=memb.bm.edges[:])
@@ -293,6 +393,9 @@ class Dragon(ck.Creature):
     head_z, tail_y = (1.00, 1.07), (0.55, 0.80)
     mouth = {"head_pts": HEAD_PTS, "head_shapes": HEAD_SHAPES, "y_back": hx(V((0, -0.80, 0))).y, "teeth": {}, "tongue": {}}
     eye = {"radius": EYE_R, "sink": 0.003 * HEAD_SCALE, "lid_up": (20, 48), "lid_lo": (15, 42)}
+    # Phase B: geometric scales with scale_field.DEFAULTS (sized for this 3 m dragon). R v3: head scales 13 -> 9 mm and
+    # top plates 28 -> 17 mm, so the brow, cheek and crest ridges read as bony forms instead of being covered by plates
+    scales = {"seed": 7, "head": {"size": 0.009, "height": 0.0013}, "head_plates": {"size": 0.017, "height": 0.0022}}
 
     def spine(self):
         return SPINE
@@ -321,17 +424,18 @@ class Dragon(ck.Creature):
         limbs.sweep(FRONT_PTS, FRONT_SHAPES, "skin", N=20, step=0.018, frame="hint", hint=X, start="cap", end="cap")
         limbs.sweep(HIND_PTS, HIND_SHAPES, "skin", N=20, step=0.018, frame="hint", hint=X, start="cap", end="cap")
         ck.paw(self, limbs, (0.25, -0.37, 0.03), (math.sin(rad(8)), -math.cos(rad(8)), 0),
-               [{"angle": a, "length": 0.062, "radius": 0.020, "claw": 0.047} for a in (-26, 0, 26)],
-               dewclaw={"direction": -120, "down": -0.35, "length": 0.026, "radius": 0.012, "claw": 0.024, "offset": (-0.026, 0.012, 0.042)})
+               [{"angle": a, "length": 0.066, "radius": 0.023, "claw": 0.050} for a in (-26, 0, 26)],
+               dewclaw={"direction": -120, "down": -0.35, "length": 0.028, "radius": 0.014, "claw": 0.026, "offset": (-0.030, 0.012, 0.046)})
         hfwd = V((math.sin(rad(6)), -math.cos(rad(6)), 0))
-        ck.paw(self, limbs, (0.25, 0.36, 0.03), hfwd, [{"angle": a, "length": 0.072, "radius": 0.022, "claw": 0.052} for a in (-24, 0, 24)],
+        ck.paw(self, limbs, (0.25, 0.36, 0.03), hfwd, [{"angle": a, "length": 0.076, "radius": 0.025, "claw": 0.055} for a in (-24, 0, 24)],
                back_toe={"direction": 192, "length": 0.036, "radius": 0.0176, "claw": 0.036,
                          "offset": tuple(Matrix.Rotation(rad(192), 3, "Z") @ hfwd * 0.03)})
-        arm_path = limbs.sweep([W_ROOT, B, W_E, W_W], [(0.060, 0.060, 0.060, 2.0), (0.050, 0.050, 0.050, 2.0),
-                                                       (0.040, 0.040, 0.040, 2.0), (0.028, 0.030, 0.030, 2.0)],
+        k = 1 + (BONE - 1) * 0.85
+        arm_path = limbs.sweep([W_ROOT, B, W_E, W_W], [(0.060 * k, 0.060 * k, 0.060 * k, 2.0), (0.050 * k, 0.050 * k, 0.050 * k, 2.0),
+                                                       (0.040 * k, 0.040 * k, 0.040 * k, 2.0), (0.028 * k, 0.030 * k, 0.030 * k, 2.0)],
                                "skin", N=16, step=0.02, start="cap", end="cap")
         ed = (W_E - B).normalized()
-        limbs.sweep([W_E - ed * 0.03, W_E + ed * 0.03], [(0.040, 0.044, 0.040, 2.0), (0.034, 0.036, 0.034, 2.0)],
+        limbs.sweep([W_E - ed * 0.03, W_E + ed * 0.03], [(0.040 * k, 0.044 * k, 0.040 * k, 2.0), (0.034 * k, 0.036 * k, 0.034 * k, 2.0)],
                     "skin", N=16, step=0.01, start="tip", end="tip", tip=0.7)  # elbow knob
         limbs.mirror_x()
         bm = bmesh.new()
@@ -380,6 +484,29 @@ class Dragon(ck.Creature):
                         "spike", N=8, step=max(L / 5, 0.004), frame="hint", hint=Z, tip=1.0)
             n_cheek += 1
         self.log["cheek_spikes_per_side"] = n_cheek
+
+        def spike(base, nrm, d, L, stout=1.0):
+            base = base - nrm * 0.005
+            horns.sweep([base, base + d * L * 0.5 + nrm * L * 0.05, base + d * L],
+                        [(0.16 * L * stout, 0.24 * L * stout, 0.24 * L * stout, 2.0),
+                         (0.10 * L * stout, 0.15 * L * stout, 0.15 * L * stout, 2.0), (0.001, 0.001, 0.001, 2.0)],
+                        "spike", N=8, step=max(L / 6, 0.004), frame="hint", hint=Z, tip=1.0)
+        n_crown = n_jaw = 0
+        for y, up, L in CROWN:                 # R v2: crown of horns on the back rim of the skull, swept back
+            try:
+                base, nrm = surface_hit(tree, hx((0.0, y, 1.222)), lateral(up))
+            except RuntimeError:
+                continue
+            spike(base, nrm, (nrm * 0.55 + Y * 0.8 + Z * 0.25).normalized(), L * HEAD_SCALE, 1.25)
+            n_crown += 1
+        for y, z, L in JAW_SPIKES:             # R v2: spikes under the lower jaw, pointing down and back
+            try:
+                base, nrm = surface_hit(tree, jaw_open(hx((0.0, y, z))), lateral(-50))
+            except RuntimeError:
+                continue
+            spike(base, nrm, (nrm * 0.45 - Z * 0.55 + Y * 0.7).normalized(), L * HEAD_SCALE)
+            n_jaw += 1
+        self.log["crown_horns_per_side"], self.log["jaw_spikes_per_side"] = n_crown, n_jaw
         spikes = pm.Part(self.prefix + "DorsalSpikes")
         self.log["dorsal_spikes"] = ck.spikes_along(spikes, tree, self.info["trunk_path"],
                                                     [(0.0, 0.026), (0.12, 0.04), (0.25, 0.066), (0.42, 0.062), (0.6, 0.046), (0.92, 0.014)],

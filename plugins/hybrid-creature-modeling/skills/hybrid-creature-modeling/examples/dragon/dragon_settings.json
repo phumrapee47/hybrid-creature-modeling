@@ -18,14 +18,14 @@
  },
  "reference_bbox": {
   "min": [
-   -1.4,
+   -1.65,
    -1.25,
    0.0
   ],
   "max": [
-   1.4,
+   1.65,
    1.8,
-   1.65
+   1.75
   ]
  },
  "landmarks": {
@@ -540,6 +540,52 @@
    ],
    "lens": 60,
    "purpose": "Hind limb muscles and joints"
+  },
+  {
+   "id": "ref_back",
+   "target": [
+    0.0,
+    -0.05,
+    0.92
+   ],
+   "offset": [
+    0.3,
+    0.3,
+    0.55
+   ],
+   "lens": 50,
+   "purpose": "Back from above: osteoderm rows, dorsal scales, spikes"
+  },
+  {
+   "id": "ref_tail_tip",
+   "target": [
+    0.26,
+    1.55,
+    0.17
+   ],
+   "offset": [
+    0.4,
+    -0.1,
+    0.18
+   ],
+   "lens": 70,
+   "purpose": "Tail tip: scale size progression"
+  },
+  {
+   "id": "d9_wing_wrist",
+   "target": [
+    1.0,
+    -0.2,
+    1.45
+   ],
+   "offset": [
+    0.45,
+    -0.75,
+    -0.3
+   ],
+   "lens": 50,
+   "purpose": "Wing wrist and knuckles: where the finger panels converge (membrane seams)"
   }
- ]
+ ],
+ "reference_bbox_note": "step R v1: wings 1.2x (B3 box: x 1.4, z 1.65)"
 }

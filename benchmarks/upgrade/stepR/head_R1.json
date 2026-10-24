@@ -1,0 +1,13 @@
+{
+ "eye_center": [
+  0.0874,
+  -0.9091,
+  1.2405
+ ],
+ "eye_radius_mm": 22.4,
+ "brow_overhang_mm": 14.2,
+ "cranium_height_above_eye_mm": 106.0,
+ "cranium_half_width_at_eye_mm": 145.3,
+ "dome_index": 0.729,
+ "horn_object_pieces_left": 4
+}

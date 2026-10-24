@@ -1,0 +1,69 @@
+{
+ "file": "dragon_highres.blend",
+ "objects": {
+  "DRG_Body_HighRes": {
+   "triangles": 4264896,
+   "vertices": 2132450,
+   "median_edge_mm": 1.65,
+   "taubin_iterations": [
+    30,
+    226
+   ],
+   "relief_fine_mm": {
+    "p50": 0.14,
+    "p90": 0.48,
+    "p99": 0.99
+   },
+   "relief_medium_mm": {
+    "p50": 0.21,
+    "p90": 0.62,
+    "p99": 1.23
+   },
+   "relief_secondary_mm": {
+    "p50": 0.71,
+    "p90": 1.9,
+    "p99": 3.41
+   },
+   "relief_secondary_info": {
+    "coarse_edge_mm": 9.9,
+    "iterations": 79,
+    "samples": 152318
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.43,
+    "20-40pct (chest)": 0.5,
+    "40-60pct (body)": 0.53,
+    "60-80pct (hips/tail)": 0.46,
+    "rear_20pct (tail)": 0.47
+   },
+   "added_form_mm": {
+    "all": {
+     "p50": 1.44,
+     "p90": 7.58,
+     "p99": 21.58
+    },
+    "built_up_p90_mm": 7.58,
+    "head (y<-0.72)": {
+     "p50": 1.67,
+     "p90": 11.32,
+     "p99": 33.42
+    },
+    "neck+chest": {
+     "p50": 1.55,
+     "p90": 11.11,
+     "p99": 21.43
+    },
+    "body": {
+     "p50": 1.33,
+     "p90": 4.1,
+     "p99": 20.17
+    },
+    "tail": {
+     "p50": 1.53,
+     "p90": 8.7,
+     "p99": 21.19
+    }
+   }
+  }
+ }
+}
