@@ -51,6 +51,11 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
   - `make_contact_sheet.py`: contact sheets (Pillow).
   - `material_palette.py`: the shared palette.
 - `examples/raptor/`: **start here.** A bipedal raptor built with the kit (about 230 lines of data and builders) plus its settings, close-up views, renders and log. It was built correctly on the first dry run.
+- `examples/komodo/`: **a real animal built with step R** (skill test creature #3): a Komodo dragon checked against a museum scan.
+  - Covers: sprawling limbs, five-toed feet, a laterally compressed tail, loose neck skin as raised rolls with creases between, and a custom forked-tongue insert.
+  - Uses per-creature `scales` overrides: 8 mm bead scales, with the dorsal plates and limb plates switched off.
+  - Use it for lizards and other low quadrupeds.
+  - Its data keeps the dry-run 1 values and the reasons they changed.
 - `examples/dragon/`: **the benchmark dragon on the kit**, with the anatomy layer (26 volumes per side), the high-poly stage, wings, and settings with reference-style close-up views. Use it for any winged or quadruped creature.
 - `scripts/scale_field.py`: **geometric scales** (Phase B). Level 1 plates and Level 2 scales are displacement of the high-poly surface, driven by the body fields. Turn them on with `Creature.scales = True` or a dict of overrides (step 7b).
 - `scripts/reference_search.py`: finds realistic 3D models by other people to use as reference (step R). It reads public Sketchfab metadata anonymously, downloads nothing, and writes a candidate list plus a thumbnail contact sheet.
@@ -567,6 +572,8 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
 | Thicker or re-posed limbs leave anatomy volumes and strokes behind | Anchors are absolute points | Keep the old chain as `*_B3`, derive the new one, and carry nearby anchors with it (`follow_limbs` in the dragon example) |
 | Dark marks on a membrane after raising its grid density | Patches sharing an edge sampled it differently (48 vs 36), so `remove_doubles` could not weld the seam and the sheets overlapped | Sample shared edges with one count (`N_FINGER`, `N_ARM` in the dragon); check layering by ray-counting sheets along the normal |
 | A stronger brow only made the skull more domed | The brow bump sat at 55° from horizontal, above the eye, so it raised the top | Put the brow edge just above the eye (38° for an eye at 16°) and measure the overhang past the eye |
+| Neck skin folds read as panel cuts in a grid | Thin Crease Sharp strokes on straight lines | Raise soft rolls (Clay, about 3 mm) on wavy, unevenly spaced paths, then crease only the grooves between them |
+| An eye reads as a ball sunk in a hole | The eyeball is smaller than its socket feature | Make the eye radius fill the socket and close the lids further |
 | A tooth root lands outside the cheek | A widened cheek moved the jaw-width ray | Bound the tooth row by the inner cheek wall (kit does this) |
 
 ## 11. Reporting

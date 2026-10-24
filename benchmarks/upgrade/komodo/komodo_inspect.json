@@ -1,0 +1,184 @@
+{
+  "file": "komodo.blend",
+  "file_opens": true,
+  "blender_version": "5.2.2 LTS",
+  "file_size_bytes": 28589920,
+  "mesh_object_count": 7,
+  "material_count": 7,
+  "materials": [
+    "KMD_M_claw",
+    "KMD_M_cornea",
+    "KMD_M_eye_iris",
+    "KMD_M_simple_skin",
+    "KMD_M_tongue",
+    "KMD_M_tooth",
+    "KMD_body_baked"
+  ],
+  "totals": {
+    "vertices": 24148,
+    "edges": 64742,
+    "polygons": 40736,
+    "triangles": 47948,
+    "base_vertices": 24148,
+    "base_polygons": 40736,
+    "shells": 76,
+    "non_manifold_edges": 64,
+    "boundary_edges": 64
+  },
+  "bbox_world": {
+    "min": [
+      -0.4004,
+      -1.3806,
+      0.0011
+    ],
+    "max": [
+      0.4004,
+      1.4223,
+      0.4354
+    ],
+    "size": [
+      0.8008,
+      2.803,
+      0.4343
+    ]
+  },
+  "reference_bbox": {
+    "min": [
+      -0.42,
+      -1.42,
+      0.0
+    ],
+    "max": [
+      0.42,
+      1.48,
+      0.5
+    ]
+  },
+  "buried_surface_estimate": {
+    "buried_faces": 5274,
+    "total_faces": 40736,
+    "buried_face_pct": 12.9,
+    "buried_area_pct": 1.0
+  },
+  "objects": [
+    {
+      "name": "KMD_Eyes",
+      "vertices": 2212,
+      "edges": 4512,
+      "polygons": 2304,
+      "triangles": 4416,
+      "base_vertices": 2212,
+      "base_polygons": 2304,
+      "shells": 2,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_M_eye_iris"
+      ]
+    },
+    {
+      "name": "KMD_Cornea",
+      "vertices": 514,
+      "edges": 1024,
+      "polygons": 512,
+      "triangles": 960,
+      "base_vertices": 514,
+      "base_polygons": 512,
+      "shells": 2,
+      "non_manifold_edges": 64,
+      "boundary_edges": 64,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_M_cornea"
+      ]
+    },
+    {
+      "name": "KMD_Eyelids",
+      "vertices": 1344,
+      "edges": 2688,
+      "polygons": 1344,
+      "triangles": 2688,
+      "base_vertices": 1344,
+      "base_polygons": 1344,
+      "shells": 4,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_M_simple_skin"
+      ]
+    },
+    {
+      "name": "KMD_Teeth",
+      "vertices": 1508,
+      "edges": 3280,
+      "polygons": 1860,
+      "triangles": 2840,
+      "base_vertices": 1508,
+      "base_polygons": 1860,
+      "shells": 44,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_M_tooth"
+      ]
+    },
+    {
+      "name": "KMD_Claws",
+      "vertices": 1640,
+      "edges": 3360,
+      "polygons": 1760,
+      "triangles": 3200,
+      "base_vertices": 1640,
+      "base_polygons": 1760,
+      "shells": 20,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_M_claw"
+      ]
+    },
+    {
+      "name": "KMD_Tongue",
+      "vertices": 928,
+      "edges": 1878,
+      "polygons": 956,
+      "triangles": 1844,
+      "base_vertices": 928,
+      "base_polygons": 956,
+      "shells": 3,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_M_tongue"
+      ]
+    },
+    {
+      "name": "KMD_Body",
+      "vertices": 16002,
+      "edges": 48000,
+      "polygons": 32000,
+      "triangles": 32000,
+      "base_vertices": 16002,
+      "base_polygons": 32000,
+      "shells": 1,
+      "non_manifold_edges": 0,
+      "boundary_edges": 0,
+      "modifiers": [],
+      "uv_layers": 1,
+      "materials": [
+        "KMD_body_baked"
+      ]
+    }
+  ]
+}

@@ -69,6 +69,12 @@ Skill สำหรับ Claude Code ที่สร้างโมเดล 3D 
 |---|---|
 | ![](benchmarks/images/exp5_vs_exp6_details.png) | ![](benchmarks/images/skilltest_raptor.png) |
 
+### ทดสอบตัวที่ 3: มังกรโคโมโด (สัตว์จริง สร้างด้วย v1.2.0)
+
+สร้างตามขั้น R โดยเทียบกับ[สแกนโคโมโดของ Natural History Museum Vienna](https://sketchfab.com/3d-models/09a82ad5c86e44abbcc1f37c2f862042) ทุกรอบ ลักษณะเด่น: ขากางออกข้าง, เท้า 5 นิ้วพร้อมกรงเล็บยาว, ลิ้นแฉกสีเหลือง, รอยพับผิวหนังที่คอ และเกล็ดเม็ดเล็ก ผ่านการตรวจทุกข้อ โมเดลเกม 32k tris คลาดจาก high-poly สูงสุด 4.4 mm ([รายงาน](benchmarks/upgrade/04_komodo.md), [ตัวอย่างใน skill](plugins/hybrid-creature-modeling/skills/hybrid-creature-modeling/examples/komodo/))
+
+![มังกรโคโมโด](benchmarks/images/skilltest_komodo.jpg)
+
 รายละเอียด วิธีวัด ภาพทุกการทดลอง และข้อจำกัด อยู่ที่ [`benchmarks/`](benchmarks/README.md)
 
 ---
@@ -82,6 +88,7 @@ Skill สำหรับ Claude Code ที่สร้างโมเดล 3D 
 | v1.1.0 | [A: ชั้นกายวิภาค + ขั้น high-poly](benchmarks/upgrade/02_phaseA.md) | เพิ่ม volume ของกล้ามเนื้อ เอ็น และสันกระดูก รวม 26 ชิ้นต่อข้าง หลอมเข้ากับผิว ทำให้ added form (p90) เพิ่มจาก 0.14 เป็น 7.15 mm; high-poly 3.6M tris ปิดเป็นผิวเดียว; มี metric และภาพ clay ใหม่ |
 | v1.2.0 | B: เกล็ดที่เป็น geometry (ระดับ 1–2) | เกล็ดเป็นผิวจริง fine relief p90 จาก 0.02 เป็น 0.43–0.53 mm; **ยังไม่ผ่าน gate** (≥ 0.5 mm ผ่าน 2 จาก 5 ส่วน) |
 | v1.2.0 | [R: เทียบกับโมเดลอ้างอิงที่สมจริง](benchmarks/upgrade/03_stepR.md) | สคริปต์ค้น reference และขั้น R ใน SKILL.md; มังกร: แขนขาหนาขึ้นราว 30%, ปีกยาวจาก 0.90 เป็น 1.08 เท่าของระยะจมูกถึงสะโพก, หัวเหลี่ยม (สันคิ้วยื่นจาก 14 เป็น 26 mm), เขาหนา ตรง กวาดไปข้างหลัง |
+| v1.2.1 | [ทดสอบ: มังกรโคโมโด](benchmarks/upgrade/04_komodo.md) | สัตว์จริงตัวแรกที่สร้างด้วยขั้น R แก้ตามสแกน 2 รอบ (ตัวลึกขึ้น, ขาหนาขึ้น, จมูกทู่) และแก้ข้อบกพร่อง 2 จุดจาก build แรก (รอยพับคอ, ลูกตา); เพิ่มเป็น `examples/komodo/` |
 | ถัดไป | gap 4–6 จาก reference | รอยพับคอ, เกล็ดสีข้างเรียงเป็นแถว, เกล็ดหลังเป็นสันสูง; ปิด gate ของ Phase B |
 
 ---
@@ -140,10 +147,12 @@ spec → shape data (spine, cross-section, chain ของแขนขา)
 │   ├── .claude-plugin/plugin.json
 │   └── skills/hybrid-creature-modeling/
 │       ├── SKILL.md                 ← คู่มือหลักของ skill
-│       ├── scripts/                 ← creature_kit, proc_mesh, sculpt_driver, detail_materials,
-│       │                               camera_setup, render_views, render_details, inspect_model ...
+│       ├── scripts/                 ← creature_kit, proc_mesh, sculpt_driver, detail_materials, scale_field,
+│       │                               quality_metrics, reference_search, camera_setup, render_views, render_details ...
 │       └── examples/
 │           ├── raptor/              ← ตัวอย่างที่ใช้ creature_kit (เริ่มจากตรงนี้)
+│           ├── dragon/              ← มังกร benchmark บน creature_kit (กายวิภาค, high-poly, เกล็ด, ขั้น R)
+│           ├── komodo/              ← มังกรโคโมโด: สัตว์จริงที่สร้างด้วยขั้น R
 │           └── dragon_detail.py     ← มังกรฉบับเต็ม (ปีก, เยื่อปีก, ขยายหัว, แก้ขากรรไกร)
 └── benchmarks/
     ├── README.md                    ← วิธีทดลอง ผล และข้อจำกัด

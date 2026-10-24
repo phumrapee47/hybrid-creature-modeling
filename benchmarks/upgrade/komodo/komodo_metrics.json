@@ -1,0 +1,69 @@
+{
+ "file": "komodo_highres.blend",
+ "objects": {
+  "KMD_Body_HighRes": {
+   "triangles": 1867384,
+   "vertices": 933694,
+   "median_edge_mm": 1.66,
+   "taubin_iterations": [
+    30,
+    223
+   ],
+   "relief_fine_mm": {
+    "p50": 0.1,
+    "p90": 0.35,
+    "p99": 0.62
+   },
+   "relief_medium_mm": {
+    "p50": 0.14,
+    "p90": 0.44,
+    "p99": 0.77
+   },
+   "relief_secondary_mm": {
+    "p50": 0.96,
+    "p90": 2.66,
+    "p99": 4.69
+   },
+   "relief_secondary_info": {
+    "coarse_edge_mm": 6.3,
+    "iterations": 196,
+    "samples": 155616
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.37,
+    "20-40pct (chest)": 0.32,
+    "40-60pct (body)": 0.32,
+    "60-80pct (hips/tail)": 0.31,
+    "rear_20pct (tail)": 0.42
+   },
+   "added_form_mm": {
+    "all": {
+     "p50": 0.71,
+     "p90": 3.13,
+     "p99": 14.77
+    },
+    "built_up_p90_mm": 3.13,
+    "head (y<-0.72)": {
+     "p50": 0.87,
+     "p90": 6.54,
+     "p99": 11.88
+    },
+    "neck+chest": {
+     "p50": 0.61,
+     "p90": 1.64,
+     "p99": 14.25
+    },
+    "body": {
+     "p50": 0.7,
+     "p90": 4.65,
+     "p99": 17.27
+    },
+    "tail": {
+     "p50": 0.85,
+     "p90": 1.14,
+     "p99": 1.34
+    }
+   }
+  }
+ }
+}
