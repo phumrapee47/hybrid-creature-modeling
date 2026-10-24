@@ -6,6 +6,23 @@ Skill สำหรับ Claude Code ที่สร้างโมเดล 3D 
 
 ![เปรียบเทียบ 5 วิธี](benchmarks/images/comparison_main.png)
 
+## 🐉 มังกรในแต่ละเวอร์ชัน
+
+ทุกภาพเรนเดอร์ด้วยกล้อง แสง และ palette ชุดเดียวกัน จึงเทียบกันได้ตรงๆ ภาพ clay ไม่มีสีและ normal map เห็นแต่รูปทรงจริง
+
+![มังกรทุกเวอร์ชัน](benchmarks/images/versions/versions_overview.jpg)
+
+| เวอร์ชัน | ภาพรวม | หัว | สิ่งที่เปลี่ยน |
+|---|---|---|---|
+| **v1.0** | <img src="benchmarks/images/versions/v1.0_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.0_head.jpg" width="280"> | hybrid pipeline + detail pass: เกล็ดเป็น shader ทั้งหมด จึงมองไม่เห็นในภาพ clay |
+| **v1.1** Phase A | <img src="benchmarks/images/versions/v1.1_A_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.1_A_head.jpg" width="280"> | เพิ่มกล้ามเนื้อ เอ็น และสันกระดูก 26 ชิ้นต่อข้าง รูปทรงที่ปั้นเพิ่ม (added form p90) จาก 0.14 เป็น 7.15 mm |
+| **v1.2** Phase B | <img src="benchmarks/images/versions/v1.2_B_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_B_head.jpg" width="280"> | เกล็ดเป็นผิวจริง fine relief p90 จาก 0.02 เป็น 0.42–0.52 mm (gate ยังไม่ผ่าน) |
+| **v1.2** R1 | <img src="benchmarks/images/versions/v1.2_R1_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R1_head.jpg" width="280"> | เริ่มเทียบกับ reference: แขนขาหนาขึ้นราว 30%, ศอกและเข่ากางออก, ปีกยาวจาก 0.90 เป็น 1.08 เท่าของระยะจมูกถึงสะโพก |
+| **v1.2** R2 | <img src="benchmarks/images/versions/v1.2_R2_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R2_head.jpg" width="280"> | หัวเหลี่ยม: สันคิ้วยื่นจาก 14 เป็น 26 mm, กะโหลกโค้งน้อยลง, เพิ่มเขาเรียงท้ายกะโหลกและหนามใต้คาง |
+| **v1.2** R3 (ปัจจุบัน) | <img src="benchmarks/images/versions/v1.2_R3_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R3_head.jpg" width="280"> | เขาหลักหนา ตรง และกวาดไปข้างหลัง; เกล็ดบนหัวเล็กลงจาก 13 เป็น 9 mm |
+
+ภาพขนาดเต็มทุกมุม (รวม clay) อยู่ใน [`benchmarks/images/versions/`](benchmarks/images/versions/) รายละเอียดแต่ละเฟสอยู่ในหัวข้อ "กำลังพัฒนาต่อ" ด้านล่าง
+
 ## 🚀 จุดเด่น (Key Features)
 
 - **เลือกเทคนิคตามขนาดของรายละเอียด** แต่ละเทคนิคถูกใช้กับปัญหาที่มันแก้ได้ดีที่สุด
