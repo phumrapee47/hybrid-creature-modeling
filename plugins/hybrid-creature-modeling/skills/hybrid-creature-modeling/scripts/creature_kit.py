@@ -11,6 +11,8 @@ Run modes
   GUI (sculpt):  blender --factory-startup --window-geometry 0 0 1400 1000 --python my_creature.py
   Dry run:       CREATURE_DRY_RUN=1 blender -b --factory-startup --python my_creature.py
                  (no sculpt, 512 px bakes, output to a temp folder; catches most bugs in about a minute)
+Output folder: CREATURE_OUT_DIR, else Creature.out_dir, else the creature script's folder (never build inside an
+installed skill: the high-poly .blend is several hundred MB).
 The process exits with code 1 if the build logged an error (Blender's own quit always returns 0).
 Settings (rig, reference box, collection name, detail views): CREATURE_SETTINGS=<json> or the creature's
 `settings` attribute; default is benchmark_settings.json next to this file.
@@ -145,6 +147,9 @@ class Creature:
     tail_y = (0.55, 0.80)
     mouth = None                    # dict(head_pts, head_shapes, y_back, teeth={...}, tongue={...}) for an open mouth
     eye = None                      # dict(radius, sink, lid_up=(tilt, cap), lid_lo=(tilt, cap))
+    hipoly_subdiv = 1               # Catmull-Clark levels applied after the secondary sculpt (the high-poly stage)
+    anatomy_fillet = 14             # cavity-fillet iterations after the anatomy volumes are fused (base fillet: 30)
+    hipoly_phases = ("tertiary",)   # stroke phases sculpted on the high-poly mesh instead of the base mesh
 
     def __init__(self):
         self.log = {"creature": self.name, "blender": bpy.app.version_string, "dry_run": DRY_RUN, "voxel_size": self.voxel,
@@ -175,6 +180,13 @@ class Creature:
         named "eye" also places the eyeball. Use surface_hit(tree, axis_point, lateral(...))."""
         return []
 
+    def anatomy(self, tree):
+        """Anatomy layer: [dict(name, kind, a=(target, ray_dir), b=(target, ray_dir), width, protrude, depth=0.6,
+        n=8, tol=0.12)] for the left side (mirrored). kind: "muscle" (fusiform belly), "tendon", "ridge" (bony
+        crest/arch/rib), "knob" (olecranon, patella, malleolus). Anchors are ray-cast onto the base lofts like
+        features; the volumes are fused by the voxel remesh, so they become secondary forms of one surface."""
+        return []
+
     def inserts(self, ctx):
         """[(pm.Part, mirror)] for horns, spikes, claws, wings ... ctx: tree, prof, eye_ref, info, rng."""
         return []
@@ -188,6 +200,81 @@ class Creature:
     def mark(self, name):
         self.log["timings"][name] = round(time.perf_counter() - T0, 2)
         print(f"[bench] {name} @ {self.log['timings'][name]} s")
+
+
+# =========================================================================== anatomy layer
+def _profile(kind, t):
+    """(width factor, protrusion factor) along a volume, t in 0..1."""
+    sn = math.sin(math.pi * t)
+    if kind == "muscle":   # fusiform belly tapering into tendons at origin and insertion
+        return 0.35 + 0.65 * sn ** 0.8, sn ** 0.9
+    if kind == "tendon":   # narrow cord, nearly constant relief
+        return 0.6 + 0.4 * sn, min(1.0, 3.0 * sn)
+    if kind == "ridge":    # bony crest / arch / rib: long flat top, soft ends
+        return 0.6 + 0.4 * sn, 1.0 - abs(2.0 * t - 1.0) ** 3
+    if kind == "knob":     # olecranon, patella, malleolus
+        return max(0.3, sn ** 0.5), sn ** 0.5
+    raise ValueError(f"unknown anatomy kind {kind}")
+
+
+def anatomy_volumes(cr, bm):
+    """Build the creature's anatomy volumes on the base lofts (left side, mirrored). Returns (bmesh or None, record).
+
+    Each volume follows the surface between two ray-cast anchors; its centre line sits (half-depth - protrusion)
+    below the surface so exactly `protrude` metres stand proud at the belly and the ends are buried. The voxel
+    remesh then unions them with the base. v2: they are fused in a second remesh *after* the base cavity fillet, with
+    only a light fillet of their own, so muscle separations survive (v1 fused them first and the 30-iteration fillet
+    smoothed most of them away)."""
+    bm.normal_update()
+    tree = BVHTree.FromBMesh(bm)
+    specs = cr.anatomy(tree)
+    rec = {"placed": [], "skipped": []}
+    if not specs:
+        return None, rec
+    part = pm.Part("anatomy")
+    for v in specs:
+        try:
+            (pa, na), (pb, nb) = surface_hit(tree, *v["a"]), surface_hit(tree, *v["b"])
+        except RuntimeError as exc:
+            rec["skipped"].append(f"{v['name']}: {exc}")
+            continue
+        far = max((pa - V(v["a"][0])).length, (pb - V(v["b"][0])).length)
+        if far > v.get("tol", 0.12):  # the ray hit some other part (a leg, the wing arm): do not guess
+            rec["skipped"].append(f"{v['name']}: anchor {far * 1000:.0f} mm from its target")
+            continue
+        axis = pb - pa
+        if axis.length < 1e-4:
+            rec["skipped"].append(f"{v['name']}: anchors coincide")
+            continue
+        n, kind = v.get("n", 8), v.get("kind", "muscle")
+        pts, shapes, leaves = [], [], None
+        dev_tol = max(0.015, 0.2 * axis.length)
+        for k in range(n + 1):
+            t = k / n
+            p, nn = pa.lerp(pb, t), na.lerp(nb, t).normalized()
+            loc, nrm, _, _ = tree.ray_cast(p + nn * 0.06, -nn, 0.15)
+            if loc is None or nrm.length < 0.5:
+                loc, nrm = p, nn
+            elif nrm.dot(nn) < 0:
+                nrm = -nrm
+            if (loc - p).length > dev_tol:  # the projection jumped to another surface (e.g. across an open mouth)
+                leaves = t
+                break
+            wf, pf = _profile(kind, t)
+            w = v["width"] * wf
+            d = w * v.get("depth", 0.45)  # v1/v2 0.6: steeper sides read as stuck-on ovals
+            pts.append(loc + nrm * (v["protrude"] * pf - d))
+            shapes.append((w, d, d, 2.0))
+        if leaves is not None:
+            rec["skipped"].append(f"{v['name']}: path leaves the surface at t={leaves:.2f}")
+            continue
+        hint = axis.normalized().cross((na + nb).normalized())
+        part.sweep(pts, shapes, "skin", N=16, step=max(min(v["width"] * 0.35, axis.length / 10), 0.004), frame="hint",
+                   hint=hint.normalized(), start="tip", end="tip", tip=0.6)
+        rec["placed"].append({"name": v["name"], "kind": kind, "length_mm": round(axis.length * 1000),
+                              "protrude_mm": round(v["protrude"] * 1000, 1)})
+    part.mirror_x()
+    return part.bm, rec
 
 
 # =========================================================================== feet and claws
@@ -311,6 +398,9 @@ def build_teeth(tree, prof, name, spacing=0.021, upper=0.021, lower=0.018, fangs
             zm = prof_at(prof, y, "zm")
             zprobe = prof_at(prof, y, "zu" if jaw == "upper" else "zl") + (0.004 if jaw == "upper" else -0.004)
             w = half_width(tree, y, zprobe)
+            inner, _, _, _ = tree.ray_cast(V((0.0, y, zm)), X, 0.3)
+            if inner is not None and (w is None or inner.x < w):
+                w = inner.x  # cheeks close the gape near the corner: never place a root outside the inner wall
             if w is None:
                 stats["skipped"] += 1
                 continue
@@ -624,11 +714,14 @@ def bake_maps(cr, high, low, ov, sizes):
     return rec
 
 
-def build_game_mesh(cr, high, col, ov, sizes):
-    sample = sd.coords(high.data)[::8]
+def build_game_mesh(cr, high, col, ov, sizes, src=None):
+    """Retopology gate / decimate from `src` (the secondary-form mesh, much lighter than the high-poly) and
+    bake from `high`. The deviation gate is measured against the high-poly surface."""
+    src = src or high
+    sample = sd.coords(high.data)[::max(8, len(high.data.vertices) // 120000)]
     regions = cr.regions()
     rec = {}
-    q = duplicate(high, cr.prefix + "Body_QF", col)
+    q = duplicate(src, cr.prefix + "Body_QF", col)
     select_only(q)
     t = time.perf_counter()
     with bpy.context.temp_override(**dict(ov, active_object=q, object=q, selected_objects=[q], selected_editable_objects=[q])):
@@ -647,9 +740,9 @@ def build_game_mesh(cr, high, col, ov, sizes):
         low = q
     else:
         bpy.data.objects.remove(q)
-        low = duplicate(high, cr.prefix + "Body_Decimated", col)
+        low = duplicate(src, cr.prefix + "Body_Decimated", col)
         t = time.perf_counter()
-        ratio = cr.decimate_tris / (2.0 * len(high.data.polygons))
+        ratio = cr.decimate_tris / (2.0 * len(src.data.polygons))
         m = low.modifiers.new("Decimate", "DECIMATE")
         m.decimate_type, m.use_collapse_triangulate, m.ratio = "COLLAPSE", True, ratio
         apply_mods(low)
@@ -696,6 +789,7 @@ def build(cr, out_dir):
     camera_setup.build_rig(scene)
 
     bm = cr.build_base()
+    vol_bm, log["anatomy"] = anatomy_volumes(cr, bm)
     me = bpy.data.meshes.new(cr.prefix + "Body_HighRes")
     bm.to_mesh(me)
     bm.free()
@@ -719,20 +813,52 @@ def build(cr, out_dir):
         bpy.ops.object.voxel_remesh()
     high.data.shade_smooth()
     log["fused_faces"] = len(high.data.polygons)
+    primary = duplicate(high, cr.prefix + "Body_Primary", col)
+    col.objects.unlink(primary)
+    primary_path = os.path.join(out_dir, f"{cr.name}_primary.blend")
+    bpy.data.libraries.write(camera_setup._long_path(primary_path) if len(primary_path) > 250 else primary_path, {primary},
+                             fake_user=True)  # reference for the added-form metric (quality_metrics --ref)
+    bpy.data.objects.remove(primary)
     cr.mark("voxel_fused")
 
     if sc:
         sc.mode("SCULPT")
         sc.phase = "fillet"
         sc.cavity_fillet(iterations=30)
+    if vol_bm is not None:                  # second fusion: anatomy volumes on the cleaned base
+        if sc:
+            sc.mode("OBJECT")
+        vme = bpy.data.meshes.new("tmp_anatomy")
+        vol_bm.to_mesh(vme)
+        vol_bm.free()
+        vob = bpy.data.objects.new("tmp_anatomy", vme)
+        col.objects.link(vob)
+        vs = vob.modifiers.new("Subdivision", "SUBSURF")
+        vs.levels = 2                       # loft facets would survive the remesh as stripes
+        apply_mods(vob)
+        merged = bmesh.new()
+        merged.from_mesh(high.data)
+        merged.from_mesh(vob.data)
+        merged.to_mesh(high.data)
+        merged.free()
+        bpy.data.objects.remove(vob)
+        with bpy.context.temp_override(**ov):
+            bpy.ops.object.voxel_remesh()
+        high.data.shade_smooth()
+        log["anatomy_fused_faces"] = len(high.data.polygons)
+        if sc:
+            sc.mode("SCULPT")
+            sc.phase = "anatomy_fillet"
+            if cr.anatomy_fillet:
+                sc.cavity_fillet(iterations=cr.anatomy_fillet)
+    if sc:
         for phase, specs in cr.strokes():
+            if phase in cr.hipoly_phases:
+                continue
             sc.phase = phase
             for s in specs:
                 sc.stroke(s)
         sc.mode("OBJECT")
-        lo = [(s["label"], s["target_mm"], s["achieved_mm"]) for s in log["strokes"]
-              if s["target_mm"] and not 0.7 * s["target_mm"] <= s["achieved_mm"] <= 1.6 * s["target_mm"]]
-        log["strokes_off_target"] = lo
     cr.mark("sculpted" if sc else "sculpt_skipped_dry_run")
 
     high.data.update()
@@ -761,6 +887,30 @@ def build(cr, out_dir):
     log["field_vertices_over_half"] = body_fields(cr, high.data, w_mouth, w_lip)
     high.data.materials.append(mats["body"])
     cr.mark("fields_written")
+
+    # high-poly stage: keep the secondary-form mesh for retopology/decimation, subdivide the sculpt for fine work
+    mid = duplicate(high, cr.prefix + "Body_Mid", col)
+    col.objects.unlink(mid)                  # kept in memory only (not rendered, not saved)
+    log["mid_faces"] = len(mid.data.polygons)
+    if cr.hipoly_subdiv:
+        hs = high.modifiers.new("HiPoly", "SUBSURF")
+        hs.levels = hs.render_levels = cr.hipoly_subdiv
+        apply_mods(high)                     # generic attributes (body fields) are interpolated by the subdivision
+        high.data.shade_smooth()
+    log["hipoly_faces"] = len(high.data.polygons)
+    cr.mark("hipoly_built")
+    if sc:
+        sc.mode("SCULPT")
+        for phase, specs in cr.strokes():
+            if phase not in cr.hipoly_phases:
+                continue
+            sc.phase = phase + "_hipoly"
+            for s in specs:
+                sc.stroke(s)
+        sc.mode("OBJECT")
+        log["strokes_off_target"] = [(s["label"], s["target_mm"], s["achieved_mm"]) for s in log["strokes"]
+                                     if s["target_mm"] and not 0.7 * s["target_mm"] <= s["achieved_mm"] <= 1.6 * s["target_mm"]]
+        cr.mark("hipoly_sculpted")
 
     ctx = {"tree": tree, "prof": prof, "eye_ref": eye_ref, "info": cr.info, "rng": np.random.default_rng(6), "high": high}
     parts = []
@@ -793,7 +943,8 @@ def build(cr, out_dir):
     cr.mark("highres_saved")
 
     sizes = {k: 512 for k in cr.bake} if DRY_RUN else cr.bake
-    low, rec = build_game_mesh(cr, high, col, ov, sizes)
+    low, rec = build_game_mesh(cr, high, col, ov, sizes, src=mid)
+    bpy.data.objects.remove(mid)
     low.parent = root
     log["game_mesh"] = rec
     cr.mark("game_mesh_baked")
@@ -808,7 +959,9 @@ def run(cr, script_file):
     if cr.settings:
         os.environ["CREATURE_SETTINGS"] = cr.settings
         camera_setup.SETTINGS_PATH = cr.settings
-    out_dir = tempfile.mkdtemp(prefix=f"{cr.name}_dry_") if DRY_RUN else (cr.out_dir or os.path.dirname(os.path.abspath(script_file)))
+    out_dir = (tempfile.mkdtemp(prefix=f"{cr.name}_dry_") if DRY_RUN else
+               os.environ.get("CREATURE_OUT_DIR") or cr.out_dir or os.path.dirname(os.path.abspath(script_file)))
+    os.makedirs(out_dir, exist_ok=True)
     too_long = [p for p in (os.path.abspath(script_file), os.path.join(HERE, "material_palette.py")) if len(p) > 250]
     if too_long:  # Blender's file loaders and image writers fail past 260 characters on Windows
         print(f"[bench] WARNING paths near the Windows 260-character limit: {too_long}")

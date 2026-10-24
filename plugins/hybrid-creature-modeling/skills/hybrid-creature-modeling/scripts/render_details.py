@@ -23,6 +23,7 @@ from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera_setup  # noqa: E402
+import material_palette as mp  # noqa: E402
 
 V = Vector
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -31,6 +32,7 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--prefix", required=True)
 ap.add_argument("--samples", type=int, default=None)
 ap.add_argument("--only", nargs="*", default=None)
+ap.add_argument("--clay", action="store_true", help="neutral clay override: judge forms without materials, bump or normal maps")
 args = ap.parse_args(argv)
 
 DRAGON_VIEWS = [
@@ -79,6 +81,8 @@ views = settings.get("detail_views", DRAGON_VIEWS)
 scene = bpy.context.scene
 camera_setup.build_rig(scene)
 device = camera_setup.configure_render(scene, samples=args.samples)
+if args.clay:
+    scene.view_layers[0].material_override = mp.make_flat_material("RIG_Clay", settings["clay"]["color_srgb"], settings["clay"]["roughness"])
 cam_data = bpy.data.cameras.new("DET_Cam")
 cam = bpy.data.objects.new("DET_Cam", cam_data)
 scene.collection.objects.link(cam)

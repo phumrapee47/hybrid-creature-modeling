@@ -1,0 +1,196 @@
+{
+ "file": "dragon_v1_highres.blend",
+ "objects": {
+  "DRG_Body_HighRes": {
+   "triangles": 890094,
+   "vertices": 445049,
+   "median_edge_mm": 3.17,
+   "relief_fine_mm": {
+    "p50": 0.01,
+    "p90": 0.04,
+    "p99": 0.26
+   },
+   "relief_medium_mm": {
+    "p50": 0.06,
+    "p90": 0.16,
+    "p99": 0.5
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.05,
+    "20-40pct (chest)": 0.04,
+    "40-60pct (body)": 0.03,
+    "60-80pct (hips/tail)": 0.03,
+    "rear_20pct (tail)": 0.03
+   }
+  },
+  "DRG_Claws": {
+   "triangles": 2752,
+   "vertices": 1412,
+   "median_edge_mm": 6.75
+  },
+  "DRG_Cornea": {
+   "triangles": 1520,
+   "vertices": 802,
+   "median_edge_mm": 2.1
+  },
+  "DRG_DorsalSpikes": {
+   "triangles": 3920,
+   "vertices": 2038,
+   "median_edge_mm": 5.9,
+   "relief_fine_mm": {
+    "p50": 0.23,
+    "p90": 1.93,
+    "p99": 5.23
+   },
+   "relief_medium_mm": {
+    "p50": 1.02,
+    "p90": 5.01,
+    "p99": 12.2
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 2.05,
+    "20-40pct (chest)": 2.75,
+    "40-60pct (body)": 2.31,
+    "60-80pct (hips/tail)": 1.71,
+    "rear_20pct (tail)": 1.24
+   }
+  },
+  "DRG_Eyelids": {
+   "triangles": 7040,
+   "vertices": 3520,
+   "median_edge_mm": 1.63,
+   "relief_fine_mm": {
+    "p50": 0.05,
+    "p90": 0.4,
+    "p99": 0.42
+   },
+   "relief_medium_mm": {
+    "p50": 0.15,
+    "p90": 0.67,
+    "p99": 0.77
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.38,
+    "20-40pct (chest)": 0.4,
+    "40-60pct (body)": 0.41,
+    "60-80pct (hips/tail)": 0.38,
+    "rear_20pct (tail)": 0.38
+   }
+  },
+  "DRG_Eyes": {
+   "triangles": 4416,
+   "vertices": 2212,
+   "median_edge_mm": 2.93,
+   "relief_fine_mm": {
+    "p50": 0.03,
+    "p90": 0.04,
+    "p99": 0.04
+   },
+   "relief_medium_mm": {
+    "p50": 0.24,
+    "p90": 0.32,
+    "p99": 0.32
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.04,
+    "20-40pct (chest)": 0.04,
+    "40-60pct (body)": 0.04,
+    "60-80pct (hips/tail)": 0.04,
+    "rear_20pct (tail)": 0.04
+   }
+  },
+  "DRG_Horns": {
+   "triangles": 4328,
+   "vertices": 2180,
+   "median_edge_mm": 6.92,
+   "relief_fine_mm": {
+    "p50": 0.12,
+    "p90": 0.57,
+    "p99": 3.25
+   },
+   "relief_medium_mm": {
+    "p50": 0.65,
+    "p90": 1.86,
+    "p99": 7.61
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 1.49,
+    "20-40pct (chest)": 0.54,
+    "40-60pct (body)": 0.3,
+    "60-80pct (hips/tail)": 0.13,
+    "rear_20pct (tail)": 0.08
+   }
+  },
+  "DRG_Teeth": {
+   "triangles": 6360,
+   "vertices": 3284,
+   "median_edge_mm": 2.57,
+   "relief_fine_mm": {
+    "p50": 0.12,
+    "p90": 0.62,
+    "p99": 1.12
+   },
+   "relief_medium_mm": {
+    "p50": 0.27,
+    "p90": 1.23,
+    "p99": 2.26
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.87,
+    "20-40pct (chest)": 0.67,
+    "40-60pct (body)": 0.62,
+    "60-80pct (hips/tail)": 0.6,
+    "rear_20pct (tail)": 0.54
+   }
+  },
+  "DRG_Tongue": {
+   "triangles": 1368,
+   "vertices": 690,
+   "median_edge_mm": 4.67
+  },
+  "DRG_WingFingers": {
+   "triangles": 7016,
+   "vertices": 3528,
+   "median_edge_mm": 12.48,
+   "relief_fine_mm": {
+    "p50": 0.11,
+    "p90": 0.94,
+    "p99": 3.74
+   },
+   "relief_medium_mm": {
+    "p50": 0.77,
+    "p90": 2.21,
+    "p99": 9.85
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 3.74,
+    "20-40pct (chest)": 0.28,
+    "40-60pct (body)": 0.17,
+    "60-80pct (hips/tail)": 0.15,
+    "rear_20pct (tail)": 0.33
+   }
+  },
+  "DRG_WingMembranes": {
+   "triangles": 5808,
+   "vertices": 2908,
+   "median_edge_mm": 42.65,
+   "relief_fine_mm": {
+    "p50": 0.52,
+    "p90": 2.37,
+    "p99": 6.77
+   },
+   "relief_medium_mm": {
+    "p50": 1.25,
+    "p90": 5.25,
+    "p99": 11.85
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 2.5,
+    "20-40pct (chest)": 2.12,
+    "40-60pct (body)": 1.73,
+    "60-80pct (hips/tail)": 2.21,
+    "rear_20pct (tail)": 2.71
+   }
+  }
+ }
+}

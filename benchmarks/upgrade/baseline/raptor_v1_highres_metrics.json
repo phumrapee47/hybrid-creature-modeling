@@ -1,0 +1,101 @@
+{
+ "file": "raptor_v1_highres.blend",
+ "objects": {
+  "RAP_Body_HighRes": {
+   "triangles": 525440,
+   "vertices": 262722,
+   "median_edge_mm": 3.24,
+   "relief_fine_mm": {
+    "p50": 0.01,
+    "p90": 0.04,
+    "p99": 0.25
+   },
+   "relief_medium_mm": {
+    "p50": 0.06,
+    "p90": 0.17,
+    "p99": 0.48
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.07,
+    "20-40pct (chest)": 0.03,
+    "40-60pct (body)": 0.04,
+    "60-80pct (hips/tail)": 0.03,
+    "rear_20pct (tail)": 0.03
+   }
+  },
+  "RAP_Claws": {
+   "triangles": 1984,
+   "vertices": 1020,
+   "median_edge_mm": 5.01
+  },
+  "RAP_Cornea": {
+   "triangles": 960,
+   "vertices": 514,
+   "median_edge_mm": 2.23
+  },
+  "RAP_DorsalScutes": {
+   "triangles": 2992,
+   "vertices": 1594,
+   "median_edge_mm": 3.27
+  },
+  "RAP_Eyelids": {
+   "triangles": 2688,
+   "vertices": 1344,
+   "median_edge_mm": 2.31
+  },
+  "RAP_Eyes": {
+   "triangles": 4416,
+   "vertices": 2212,
+   "median_edge_mm": 2.49,
+   "relief_fine_mm": {
+    "p50": 0.03,
+    "p90": 0.04,
+    "p99": 0.04
+   },
+   "relief_medium_mm": {
+    "p50": 0.21,
+    "p90": 0.27,
+    "p99": 0.27
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.04,
+    "20-40pct (chest)": 0.03,
+    "40-60pct (body)": 0.03,
+    "60-80pct (hips/tail)": 0.03,
+    "rear_20pct (tail)": 0.04
+   }
+  },
+  "RAP_Horns": {
+   "triangles": 280,
+   "vertices": 144,
+   "median_edge_mm": 5.16
+  },
+  "RAP_Teeth": {
+   "triangles": 6000,
+   "vertices": 3116,
+   "median_edge_mm": 1.9,
+   "relief_fine_mm": {
+    "p50": 0.09,
+    "p90": 0.53,
+    "p99": 0.75
+   },
+   "relief_medium_mm": {
+    "p50": 0.28,
+    "p90": 1.05,
+    "p99": 1.52
+   },
+   "relief_fine_by_region_p90_mm": {
+    "front_20pct (head/neck)": 0.62,
+    "20-40pct (chest)": 0.57,
+    "40-60pct (body)": 0.53,
+    "60-80pct (hips/tail)": 0.52,
+    "rear_20pct (tail)": 0.47
+   }
+  },
+  "RAP_Tongue": {
+   "triangles": 768,
+   "vertices": 386,
+   "median_edge_mm": 6.1
+  }
+ }
+}

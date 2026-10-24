@@ -50,6 +50,12 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
   - `make_contact_sheet.py`: contact sheets (Pillow).
   - `material_palette.py`: the shared palette.
 - `examples/raptor/`: **start here.** A bipedal raptor built with the kit (about 230 lines of data and builders) plus its settings, close-up views, renders and log. It was built correctly on the first dry run.
+- `examples/dragon/`: **the benchmark dragon on the kit**, with the anatomy layer (26 volumes per side), the high-poly stage, wings, and settings with reference-style close-up views. Use it for any winged or quadruped creature.
+- `scripts/quality_metrics.py`: geometry-only measurements. Shader bump and normal maps are invisible to it.
+  - mesh resolution;
+  - relief bands: fine, medium, secondary;
+  - with `--ref <name>_primary.blend`, the **added form**: how far the final sculpt stands off the primary lofts, in total and per region. Every kit build writes the primary file.
+- `render_details.py --clay`: renders any close-up without materials. Forms must read in clay before any surface detail counts.
 - `examples/dragon_detail.py`: the original long-form dragon (about 1,000 lines, written before the kit). Use it as a reference for wings, membranes, head scaling and jaw rebuilding.
 
 ## Quick start: a new creature
@@ -63,6 +69,7 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
    - feet via `ck.paw`.
 3. Fill in the hooks:
    - `build_base()`: lofts to be fused; mirror the limbs.
+   - `anatomy(tree)`: muscle bellies, tendons, bony ridges and knobs (step 3b).
    - `field_chains()`: limb chains for the scale fields.
    - `strokes()`: phases → `sd.spec(..., target=mm)`.
    - `features(tree)`: eye, nostril and ear references via `ck.surface_hit(tree, axis_point, ck.lateral(up_deg, fwd_deg))`.
@@ -70,7 +77,7 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
    - `inserts(ctx)`: horns, spikes, claws (`ck.claw` for every entry in `self.toe_tips`), wings.
    - Class attributes: `palette`, `stripes`, and the `head_y`, `head_z`, `tail_y` region bands.
 4. Settings JSON: the reference bbox, camera framing for the creature's size, a collection name, and 8 `detail_views` that target its own inserts.
-5. `CREATURE_DRY_RUN=1 blender -b --factory-startup --python my_creature.py`. Then render previews with `CREATURE_SETTINGS=<json>` at 24 samples. Look at them, fix the data, and repeat.
+5. Set `CREATURE_OUT_DIR` to a working folder: the high-poly file is about 300 MB, and builds must never write into the skill folder. Run `CREATURE_DRY_RUN=1 blender -b --factory-startup --python my_creature.py`. Then render previews with `CREATURE_SETTINGS=<json>` at 24 samples. Look at them, fix the data, and repeat.
 6. GUI run, then the full renders, `inspect_model.py`, review, and archive or iterate.
 
 ## 0. Environment and run modes
@@ -145,6 +152,49 @@ Rules:
 4. Keep **thin parts out of the fusion**: wing fingers, membranes, teeth, tongue, claws, horns and spikes. Anything thinner than about 2 voxels erodes.
 
 After `apply`-style operations, re-fetch `ob.data`: the old mesh reference is stale.
+
+## 3b. Anatomy layer: secondary forms as fused volumes
+
+Lofts give proportions but read as smooth tubes in clay. Muscles, tendons and bony landmarks are built as volumes anchored to the base surface, then fused, so they become one surface. Inflate strokes give soft blobs; volumes have origins, insertions and separations.
+
+- **Spec:** `Creature.anatomy(tree)` returns a list of `dict(name, kind, a=(target, ray_dir[, reach]), b=(...), width, protrude, depth=0.45, n=8, tol=0.12)`, for the left side only (the kit mirrors them).
+
+  | Kind | Shape along its length |
+  |---|---|
+  | `muscle` | Fusiform: tapers into tendons at both ends |
+  | `tendon` | Narrow cord |
+  | `ridge` | Flat top with soft ends (brow, zygomatic arch, ribs, crests) |
+  | `knob` | Short and round. Avoid it where several volumes meet: it pinches into a nub |
+
+- **Anchoring:** both ends are ray-cast onto the base lofts, the way features are. Each intermediate station is projected back onto the surface along the interpolated normal. Each station's centre sits `half-depth - protrusion` below the surface, so exactly `protrude` stands proud at the belly and both ends are buried.
+- **Guards** (each skips the volume and logs why; it never guesses):
+  - an anchor lands more than `tol` from its target. Head anchors aim from the skull axis, so use `tol` ≈ 0.16 there;
+  - a projected station leaves the chord by more than `max(15 mm, 0.2 × chord)`. With an open mouth, lip-line volumes otherwise jump to the other jaw and bridge the gape;
+  - a ray that starts inside another limb hits the wrong surface. Give those anchors a short `reach` (third tuple element).
+- **Two-stage fusion:**
+  1. Fuse the lofts.
+  2. Run the base cavity fillet (30 iterations).
+  3. Fuse the volumes in a second voxel remesh, with a light fillet of their own (`anatomy_fillet`, 14 iterations).
+
+  Fusing everything at once let the 30-iteration fillet erase the muscle separations.
+- **Size, for a 3 m creature** (exaggerated, as fantasy creature sculpts are):
+
+  | Form | Protrusion | Width |
+  |---|---|---|
+  | Major limb and girdle muscles | 14–22 mm | 40–70 mm |
+  | Bony ridges | 6–14 mm | 16–22 mm |
+  | Brow | 20 mm | 30 mm |
+  | Tendons | 5–6 mm | 12–14 mm |
+
+  Muscles at 5–12 mm (Phase A v1) were invisible in clay. A `depth` of 0.6 gave steep sides that read as stuck-on ovals; 0.45 blends better.
+- Drop the Inflate/Clay strokes for any muscle that a volume now builds; doubling the same form doubles it.
+
+## 4b. High-poly stage
+
+After the secondary sculpt at the base voxel size (3.5 mm), the kit keeps a copy of that mesh. It then subdivides the sculpt (`hipoly_subdiv`, Catmull-Clark: 450k → 1.8M faces, about 1.6 mm) and sculpts the `hipoly_phases` (tertiary folds and creases) on the dense mesh.
+- Body fields are written before the subdivision, and the subdivision interpolates them.
+- The kept mesh is the source for retopology/decimation. The bake reads the high-poly.
+- Deliverables: `<name>_highres.blend` (high-poly sculpt with inserts, about 300 MB), `<name>.blend` (game version) and `<name>_primary.blend` (lofts only, the metric reference).
 
 ## 4. Sculpt: closed-loop strokes with real brushes (GUI)
 
@@ -319,23 +369,24 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
    - claw drop values;
    - QuadriFlow gate result and decimation deviation;
    - bake results and the mean pixel values (a black or empty bake is a failure).
-3. **Reopen each .blend in a fresh process** (`inspect_model.py`) and check:
+3. **Measure the forms:** run `quality_metrics.py --ref <name>_primary.blend` on the high-poly. The added form (90th percentile, per region) must rise when anatomy work is added; flat regions show as near 0. Do not use a whole-body relief percentile for muscles: it is dominated by thin parts and could not see 15 mm muscles (Phase A v2 measured *lower* than the baseline while the clay showed clear gains).
+4. **Reopen each .blend in a fresh process** (`inspect_model.py`) and check:
    - evaluated triangles;
    - shells;
    - non-manifold edges (expected only on deliberate open caps);
    - buried surface %;
    - bounding box against the reference box;
    - lowest z ≥ 0.
-4. **Render the 8 standard views** with the identical rig: front and side ortho clay, three-quarter material, head close-up, wireframe, silhouette, three-quarter clay, rear three-quarter.
-5. **Render the 8 detail close-ups:** eye, open mouth, flank scales, belly, forefoot, back-lit wing, tail, horn. Camera targets come from the model's own inserts, so before/after shots frame the same part.
-6. **Look at every image yourself.** Build contact sheets and before/after sheets (previous version vs new). Ask:
+5. **Render the 8 standard views** with the identical rig: front and side ortho clay, three-quarter material, head close-up, wireframe, silhouette, three-quarter clay, rear three-quarter.
+6. **Render clay close-ups first** (`render_details.py --clay`): head, shoulder and wing, forelimb, hind limb, flank. Then render the 8 material close-ups: eye, open mouth, flank scales, belly, forefoot, back-lit wing, tail, horn. Camera targets come from the model's own inserts, so before/after shots frame the same part.
+7. **Look at every image yourself.** Build contact sheets and before/after sheets (previous version vs new). Ask:
    - Do the jaws match?
    - Do the scales read as scales at 1 m, not as noise or cracks?
    - Is anything floating, intersecting, or below the floor?
    - Do the patterns have seams at the junctions?
    - Is the iris lit?
    - Do the veins read as veins?
-7. Fix the top 1–3 defects. Archive the replaced run in `iterations/vN`. Repeat.
+8. Fix the top 1–3 defects. Archive the replaced run in `iterations/vN`. Repeat.
 
 ## 10. Pitfalls already paid for
 
@@ -364,6 +415,12 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
 | Thighs look like slabs from the front | The first thigh station is above the back line | Keep the thigh top below the hip's dorsal surface; widen the hips |
 | Blender can't open a `.blend` or `--python` script in a deep folder | Paths over 260 characters (renders included) | Build and render from a short working folder (the kit warns); copy the results back |
 | Render crash after switching engines | 4 GB GPU memory | Cycles views first, Workbench last; CPU fallback |
+| A skin-coloured column bridges the open jaws | An anatomy volume's surface path jumped across the gape | Path guard (skip the volume); keep lip-line volumes out of open mouths |
+| A pinched nub at the knee | A `knob` where three volumes meet | Leave the knee to the loft, or use a broad low `muscle` |
+| Muscles look like stuck-on ovals | Cross-section too deep (steep sides) | `depth` 0.45, two-stage fusion with an anatomy fillet |
+| Anatomy volumes vanish after fusion | Base fillet (30 iterations) smoothed their separations | Fuse the volumes after the base fillet |
+| Relief metric unchanged although the clay shows muscles | Whole-body smoothing percentile is dominated by thin parts | Added form against `<name>_primary.blend`, per region |
+| A tooth root lands outside the cheek | A widened cheek moved the jaw-width ray | Bound the tooth row by the inner cheek wall (kit does this) |
 
 ## 11. Reporting
 
