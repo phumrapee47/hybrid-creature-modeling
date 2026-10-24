@@ -1,0 +1,70 @@
+{
+  "benchmark_version": 1,
+  "blender_version_used": "5.2.2 LTS",
+  "units": {"system": "METRIC", "scale_length": 1.0, "unit": "metre"},
+  "orientation": {"up": "+Z", "dragon_faces": "-Y", "dragon_left_side": "+X", "ground_plane_z": 0.0},
+  "collections": {"model": "Dragon", "rig": "Benchmark_Rig"},
+  "reference_bbox": {"min": [-1.40, -1.25, 0.0], "max": [1.40, 1.80, 1.65]},
+  "landmarks": {
+    "head_center": [0.0, -0.93, 1.21],
+    "chest_center": [0.0, -0.30, 0.66],
+    "abdomen_center": [0.0, 0.05, 0.62],
+    "hip_center": [0.0, 0.38, 0.65],
+    "front_shoulder_joint": [0.21, -0.30, 0.56],
+    "hip_joint": [0.20, 0.40, 0.58],
+    "wing_root": [0.12, -0.20, 0.86],
+    "tail_tip": [0.30, 1.72, 0.13]
+  },
+  "render": {
+    "engine": "CYCLES",
+    "device_preference": ["CUDA", "CPU"],
+    "device_note": "OptiX is excluded: on this machine (RTX 4050 Laptop) Blender 5.2.2 fails with OPTIX_ERROR_INTERNAL_COMPILER_ERROR when loading the OptiX kernel.",
+    "samples": 128,
+    "denoise": true,
+    "resolution": [1600, 1200],
+    "view_transform": "Standard",
+    "look": "None",
+    "exposure": 0.0,
+    "max_bounces": 6
+  },
+  "world": {"color_srgb": [0.62, 0.63, 0.65], "strength": 0.55},
+  "floor": {"size": 400.0, "color_srgb": [0.55, 0.55, 0.56], "roughness": 0.85},
+  "clay": {"color_srgb": [0.62, 0.62, 0.62], "roughness": 0.55},
+  "wireframe": {"thickness": 0.0022, "wire_color_srgb": [0.05, 0.05, 0.06], "base_color_srgb": [0.80, 0.80, 0.80]},
+  "silhouette": {"engine": "BLENDER_WORKBENCH", "model_color": [0, 0, 0], "background": [1, 1, 1], "hide_floor": true},
+  "lights": [
+    {"name": "Key",  "type": "AREA", "location": [3.6, -4.2, 4.6], "target": [0.0, 0.2, 0.7], "size": 3.0, "energy": 520, "color": [1, 1, 1]},
+    {"name": "Fill", "type": "AREA", "location": [-4.8, -2.6, 2.4], "target": [0.0, 0.2, 0.7], "size": 4.0, "energy": 230,  "color": [1, 1, 1]},
+    {"name": "Rim",  "type": "AREA", "location": [0.6, 5.2, 3.6],   "target": [0.0, 0.0, 0.8], "size": 3.0, "energy": 320,  "color": [1, 1, 1]}
+  ],
+  "cameras": {
+    "front_ortho":        {"type": "ORTHO", "location": [0.0, -12.0, 0.82], "target": [0.0, 0.0, 0.82], "ortho_scale": 3.3},
+    "side_ortho":         {"type": "ORTHO", "location": [12.0, 0.27, 0.82], "target": [0.0, 0.27, 0.82], "ortho_scale": 3.6},
+    "three_quarter":      {"type": "PERSP", "location": [4.4, -5.0, 2.5],  "target": [0.0, 0.18, 0.74], "lens": 70},
+    "head_closeup":       {"type": "PERSP", "location": [1.05, -2.30, 1.55], "target": [0.0, -0.86, 1.23], "lens": 55},
+    "rear_three_quarter": {"type": "PERSP", "location": [-4.4, 5.0, 3.0],  "target": [0.0, 0.18, 0.80], "lens": 70}
+  },
+  "views": [
+    {"id": "01_front_ortho",   "camera": "front_ortho",        "shading": "clay",       "purpose": "Orthographic front form check (clay)"},
+    {"id": "02_side_ortho",    "camera": "side_ortho",         "shading": "clay",       "purpose": "Orthographic side form check (clay)"},
+    {"id": "03_three_quarter", "camera": "three_quarter",      "shading": "material",   "purpose": "Front three-quarter perspective with shared materials"},
+    {"id": "04_head_closeup",  "camera": "head_closeup",       "shading": "material",   "purpose": "Skull, muzzle, jaw, eyes, horn attachment"},
+    {"id": "05_wireframe",     "camera": "three_quarter",      "shading": "wireframe",  "purpose": "Topology / density inspection of the final evaluated mesh"},
+    {"id": "06_silhouette",    "camera": "side_ortho",         "shading": "silhouette", "purpose": "Pure black silhouette, side view"},
+    {"id": "07_clay",          "camera": "three_quarter",      "shading": "clay",       "purpose": "Neutral clay, same camera as 03 for direct clay-vs-material comparison"},
+    {"id": "08_material",      "camera": "rear_three_quarter", "shading": "material",   "purpose": "Rear three-quarter material render: back, wings, spikes, tail"}
+  ],
+  "statistics_definitions": {
+    "mesh_object_count": "Number of MESH objects in the Dragon collection after the build script finishes.",
+    "polygon_count": "Sum of faces of the evaluated (post-modifier) mesh of every Dragon mesh object.",
+    "triangle_count": "Sum of loop triangles of the evaluated meshes (what a game engine would receive).",
+    "vertex_count": "Sum of vertices of the evaluated meshes.",
+    "material_count": "Number of distinct materials referenced by Dragon mesh objects.",
+    "dimensions": "World-space axis-aligned bounding box of all evaluated Dragon vertices.",
+    "file_size": "Size in bytes of the saved .blend (uncompressed save).",
+    "script_time": "Wall-clock seconds of the build script measured inside Blender with time.perf_counter().",
+    "shells": "Connected mesh components per object (high values = assembled, non-unified parts).",
+    "non_manifold_edges": "Edges not shared by exactly two faces (open borders or intersecting/coincident geometry).",
+    "buried_surface_estimate": "Share of faces/area whose point 1.5 mm outside the face lies inside another closed shell of the model (ray-parity test). Measures hidden, wasted geometry from interpenetrating parts. Estimate: open shells make parity approximate."
+  }
+}

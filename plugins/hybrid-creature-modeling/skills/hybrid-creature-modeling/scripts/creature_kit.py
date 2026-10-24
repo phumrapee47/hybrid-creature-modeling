@@ -1,0 +1,838 @@
+"""creature_kit - the reusable hybrid creature pipeline.
+
+A creature script subclasses `Creature`, fills in data (spine, lofts, strokes, features, mouth, eye) and a few
+builders, then calls `run(MyCreature())`. The kit does the rest, in this order:
+
+  lofts -> Catmull-Clark 2 -> voxel fuse -> cavity fillet -> sculpt phases (GUI) -> procedural features
+  -> mouth profile -> body fields (+ mouth/lip weights) -> detail material -> inserts (eyes/cornea/lids,
+  teeth, tongue, creature extras) -> save high-res -> gated retopology / decimate -> UV -> bake -> save game
+
+Run modes
+  GUI (sculpt):  blender --factory-startup --window-geometry 0 0 1400 1000 --python my_creature.py
+  Dry run:       CREATURE_DRY_RUN=1 blender -b --factory-startup --python my_creature.py
+                 (no sculpt, 512 px bakes, output to a temp folder; catches most bugs in about a minute)
+The process exits with code 1 if the build logged an error (Blender's own quit always returns 0).
+Settings (rig, reference box, collection name, detail views): CREATURE_SETTINGS=<json> or the creature's
+`settings` attribute; default is benchmark_settings.json next to this file.
+"""
+import json
+import math
+import os
+import shutil
+import sys
+import tempfile
+import time
+import traceback
+
+import bpy
+import bmesh
+import numpy as np
+from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
+from mathutils.kdtree import KDTree
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import camera_setup  # noqa: E402
+import detail_materials as dm  # noqa: E402
+import proc_mesh as pm  # noqa: E402
+import sculpt_driver as sd  # noqa: E402
+
+V, X, Y, Z = Vector, Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
+DRY_RUN = os.environ.get("CREATURE_DRY_RUN") == "1"
+SIDE, FRONT, TOP, BELOW, BEHIND = V((-1, 0, 0)), V((0, 1, 0)), V((0, 0, -1)), V((0, 0, 1)), V((0, -1, 0))
+T0 = time.perf_counter()
+
+
+# =========================================================================== small helpers
+def rad(d):
+    return math.radians(d)
+
+
+def dirn(*v):
+    return V(v).normalized()
+
+
+def mx(p, s):
+    return V((p[0] * s, p[1], p[2]))
+
+
+def smoothstep(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def seg_dist(c, a, b):
+    ab = b - a
+    t = np.clip(((c - a) @ ab) / (ab @ ab), 0, 1)
+    p = a + t[:, None] * ab
+    return np.linalg.norm(c - p, axis=1), p, t
+
+
+def dense(pts, step):
+    path = pm.Path(pts)
+    n = max(2, int(path.length / step))
+    return [path.at(path.length * k / n)[0] for k in range(n + 1)]
+
+
+def surface_hit(tree, target, direction, reach=0.4):
+    """Ray from outside (target - direction * reach) along direction; returns (location, outward normal)."""
+    direction = V(direction).normalized()
+    loc, nrm, _, _ = tree.ray_cast(V(target) - direction * reach, direction, reach * 2.5)
+    if loc is None:
+        raise RuntimeError(f"surface miss at {tuple(round(v, 3) for v in target)}")
+    if nrm.length < 0.5:
+        raise RuntimeError("zero normal (bm.normal_update missing?)")
+    return loc, (nrm if nrm.dot(direction) < 0 else -nrm)
+
+
+def lateral(deg_up=0.0, deg_fwd=0.0):
+    """Inward ray direction for a feature on the left (+X) side: tilted up and forward from pure lateral."""
+    out = V((math.cos(rad(deg_up)) * math.cos(rad(deg_fwd)), -math.cos(rad(deg_up)) * math.sin(rad(deg_fwd)), math.sin(rad(deg_up))))
+    return -out
+
+
+def arc_at_u(path, u):
+    for k, (_, uu) in enumerate(path.samples):
+        if uu >= u:
+            return path.arc[k]
+    return path.length
+
+
+def sections(key, n):
+    """Resample a short list of loft sections to one per control point (sweeps interpolate by point index)."""
+    f = np.linspace(0, 1, n)
+    kf = np.linspace(0, 1, len(key))
+    return [tuple(float(np.interp(x, kf, [k[m] for k in key])) for m in range(len(key[0]))) for x in f]
+
+
+def displace(me, center, normal, radius, depth, rim, upper_boost=0.0):
+    """Socket-style depression with a Gaussian rim; upper_boost raises the rim above the centre (lid/brow)."""
+    co = sd.coords(me)
+    c, n = np.array(center), np.array(normal)
+    up = np.array(Z - V(normal) * V(normal).dot(Z))
+    up /= np.linalg.norm(up)
+    d = co - c
+    h = d @ n
+    sel = (np.linalg.norm(d, axis=1) < radius * 1.6) & (h > -0.04)
+    planar = d[sel] - np.outer(h[sel], n)
+    r = np.linalg.norm(planar, axis=1)
+    off = np.where(r < radius, -depth * (1 - (r / radius) ** 2) ** 2, 0.0)
+    lid = 1 + upper_boost * np.clip((planar @ up) / np.maximum(r, 1e-9), 0, None)
+    off += rim * lid * np.exp(-((r - radius * 0.95) / (radius * 0.28)) ** 2)
+    co[sel] += np.outer(off, n)
+    me.vertices.foreach_set("co", co.ravel())
+    me.update()
+    return int(sel.sum())
+
+
+# =========================================================================== creature spec
+class Creature:
+    """Subclass and override. Units metres; +Z up; faces -Y; left side +X; ground z = 0."""
+    name = "creature"
+    prefix = "CRT_"
+    settings = None                 # path to a settings json (rig, reference box, detail views)
+    out_dir = None                  # default: folder of the creature script
+    voxel = 0.0035
+    retopo_faces, decimate_tris = 12000, 32000
+    gate_max_mm, gate_mean_mm = 12.0, 2.0
+    bake = {"normal": 4096, "color": 4096, "roughness": 2048, "ao": 2048}
+    palette = None                  # {"skin": {"hex": ...}, ...} overrides the shared palette
+    stripes = None                  # {"period": m, "darkness": 0..1, "width": 0..1}
+    mirrored_groups = ("front", "hind", "arm", "toe")
+    head_y = (-0.78, -0.72)         # head region fades in below head_y[1] ...
+    head_z = (1.00, 1.07)           # ... and above head_z
+    tail_y = (0.55, 0.80)
+    mouth = None                    # dict(head_pts, head_shapes, y_back, teeth={...}, tongue={...}) for an open mouth
+    eye = None                      # dict(radius, sink, lid_up=(tilt, cap), lid_lo=(tilt, cap))
+
+    def __init__(self):
+        self.log = {"creature": self.name, "blender": bpy.app.version_string, "dry_run": DRY_RUN, "voxel_size": self.voxel,
+                    "timings": {}, "strokes": [], "filters": [], "errors": []}
+        self.toe_chains, self.toe_tips = [], []
+        self.info = {}
+
+    # ---- required
+    def spine(self):
+        """Centre line from snout tip to tail tip (body fields)."""
+        raise NotImplementedError
+
+    def build_base(self):
+        """Return a bmesh with every lofted part that should be voxel-fused (mirror limbs yourself)."""
+        raise NotImplementedError
+
+    # ---- optional
+    def field_chains(self):
+        """[(group, points)] for the left side; groups in mirrored_groups are mirrored. Toe chains are added."""
+        return []
+
+    def strokes(self):
+        """[(phase name, [sd.spec(...)]), ...] in order: junctions, secondary, polish, detail, tertiary."""
+        return []
+
+    def features(self, tree):
+        """[dict(name, ref=(point, outward normal), radius, depth, rim, upper)] carved after sculpting; the one
+        named "eye" also places the eyeball. Use surface_hit(tree, axis_point, lateral(...))."""
+        return []
+
+    def inserts(self, ctx):
+        """[(pm.Part, mirror)] for horns, spikes, claws, wings ... ctx: tree, prof, eye_ref, info, rng."""
+        return []
+
+    def regions(self):
+        """Deviation-gate regions for the game mesh."""
+        return {"head": lambda v: v[:, 1] < self.head_y[1], "feet": lambda v: v[:, 2] < 0.06,
+                "tail": lambda v: v[:, 1] > self.tail_y[0]}
+
+    # ---- shared helpers for builders
+    def mark(self, name):
+        self.log["timings"][name] = round(time.perf_counter() - T0, 2)
+        print(f"[bench] {name} @ {self.log['timings'][name]} s")
+
+
+# =========================================================================== feet and claws
+def paw(cr, part, center, fwd, toes, palm_scale=1.0, back_toe=None, dewclaw=None):
+    """Foot: palm loft + toes (+ optional hallux/back toe and raised dewclaw), recording chains and claw tips.
+
+    toes: [dict(angle, length, radius, claw, lift=0.0)]. lift raises the toe tip off the ground (e.g. a
+    raptor's sickle-claw toe II). back_toe / dewclaw: dict(direction deg, length, radius, claw, offset (x, y, z)).
+    """
+    fwd, c, k = V(fwd).normalized(), V(center), palm_scale
+    palm = [c - fwd * 0.05 * k + V((0, 0, 0.006 * k)), c + V((0, 0, 0.002)), c + fwd * 0.042 * k, c + fwd * 0.056 * k]
+    part.sweep(palm, [(0.036 * k, 0.026 * k, 0.020 * k, 2.6), (0.055 * k, 0.028 * k, 0.020 * k, 2.8),
+                      (0.057 * k, 0.022 * k, 0.018 * k, 2.8), (0.033 * k, 0.015 * k, 0.012 * k, 2.4)],
+               "skin", N=16, step=0.012, start="tip", end="tip", tip=0.5)
+    cr.toe_chains.append(palm)
+    for t in toes:
+        d = Matrix.Rotation(rad(t["angle"]), 3, "Z") @ fwd
+        lift = t.get("lift", 0.0)
+        base = c + d * 0.022 * k + V((0, 0, -0.002))
+        tip = base + d * t["length"] + V((0, 0, lift - 0.006))
+        chain = [base - d * 0.012, base + d * t["length"] * 0.5 + V((0, 0, 0.004 + lift * 0.75)), tip]
+        r0 = t["radius"]
+        part.sweep(chain, [(r0, r0 * 0.9, r0 * 0.9, 2.2), (r0 * 1.08, r0, r0, 2.2), (r0 * 0.82, r0 * 0.75, r0 * 0.75, 2.2)],
+                   "skin", N=10, step=0.012, start="cap", end="tip", tip=0.8)
+        cr.toe_chains.append(chain)
+        cr.toe_tips.append((tip + d * 0.002 + V((0, 0, 0.004)), d, r0 * 0.72, t["claw"]))
+    for extra in (back_toe, dewclaw):
+        if not extra:
+            continue
+        d = (Matrix.Rotation(rad(extra["direction"]), 3, "Z") @ fwd + V((0, 0, extra.get("down", 0.0)))).normalized()
+        base = c + V(extra.get("offset", (0, 0, 0)))
+        tip = base + d * extra["length"]
+        chain = [base - d * 0.012, base + d * extra["length"] * 0.5, tip]
+        r0 = extra["radius"]
+        part.sweep(chain, [(r0, r0 * 0.92, r0 * 0.92, 2.2), (r0, r0 * 0.92, r0 * 0.92, 2.2), (r0 * 0.75, r0 * 0.7, r0 * 0.7, 2.2)],
+                   "skin", N=10, step=0.008, start="cap", end="tip", tip=0.8)
+        cr.toe_chains.append(chain)
+        cr.toe_tips.append((tip + d * 0.002, d, r0 * 0.72, extra["claw"]))
+
+
+def claw(part, base, d, length, r0, material="claw"):
+    """Hooked tapering claw whose drop is clamped so the tip stays 1.5 mm above the ground. Returns the drop."""
+    d = V(d).normalized()
+    drop = min(0.62, max(0.12, (base.z - 0.0015) / length))
+    down = V((0, 0, -1))
+    pts = [base - d * 0.004, base + d * length * 0.45 + down * length * drop * 0.1,
+           base + d * length * 0.8 + down * length * drop * 0.48, base + d * length * 0.95 + down * length * drop]
+    part.sweep(pts, [(r0 * 0.8, r0, r0, 2.0), (r0 * 0.62, r0 * 0.8, r0 * 0.8, 2.0),
+                     (r0 * 0.35, r0 * 0.45, r0 * 0.45, 2.0), (0.0008, 0.0008, 0.0008, 2.0)],
+               material, N=8, step=max(length / 7, 0.005), frame="hint", hint=X if abs(d.x) < 0.7 else Y,
+               start="cap", end="tip", tip=0.5)
+    return drop
+
+
+def spikes_along(part, tree, path, sizes, spacing, rng, material="spike", start=0.08, end_frac=0.92, alternate=0.74,
+                 jitter=0.08, rake=0.55, sink=0.006):
+    """Dorsal spikes/scutes placed by ray-casting down the dorsal axis of a loft path.
+    sizes: [(fraction of path length, height m)]; alternates major/minor with seeded jitter."""
+    s_pos, n = start, 0
+    while s_pos < path.length * end_frac:
+        p, t, _ = path.at(s_pos)
+        side = t.cross(Z).normalized()
+        dorsal = side.cross(t).normalized()
+        try:
+            base, nrm = surface_hit(tree, p + dorsal * 0.2, -dorsal)
+        except RuntimeError:
+            s_pos += spacing
+            continue
+        h = float(np.interp(s_pos / path.length, [a for a, _ in sizes], [b for _, b in sizes]))
+        h *= (1.0 if n % 2 == 0 else alternate) * (1.0 + rng.uniform(-jitter, jitter))
+        rk = rake + rng.uniform(-0.1, 0.1)
+        base = base - nrm * sink
+        part.sweep([base, base + nrm * h * 0.45 + t * h * 0.12, base + nrm * h * 0.92 + t * h * rk],
+                   [(0.15 * h, 0.42 * h, 0.42 * h, 2.0), (0.10 * h, 0.24 * h, 0.30 * h, 2.0), (0.003, 0.004, 0.004, 2.0)],
+                   material, N=8, step=max(h / 5, 0.004), frame="hint", hint=side, tip=1.0)
+        n += 1
+        s_pos += spacing
+    return n
+
+
+# =========================================================================== mouth
+def mouth_profile(tree, head_pts, head_shapes, y_back, stations=26):
+    """Open-mouth stations along the head axis: palate height zu and jaw-floor height zl on the midline."""
+    head = pm.Path(head_pts)
+    out = []
+    for y in np.linspace(V(head_pts[1]).y + 0.012, y_back, stations):
+        c, u = min(head.samples, key=lambda q: abs(q[0].y - y))
+        an = pm.shape_at(head_shapes, u)[2]
+        loc, nrm, _, _ = tree.ray_cast(V((0.0, y, c.z)), -Z, 0.3)
+        ok = loc is not None and nrm.z < -0.2 and c.z - loc.z < 1.25 * an + 0.01
+        if ok:
+            loc2, nrm2, _, _ = tree.ray_cast(loc - Z * 0.0015, -Z, 0.10)
+            ok = loc2 is not None and nrm2.z > 0.2 and loc.z - loc2.z >= 0.006
+        if not ok:
+            if out:
+                break
+            continue
+        out.append({"y": float(y), "zu": loc.z, "zl": loc2.z, "zm": 0.5 * (loc.z + loc2.z)})
+    if len(out) < 4:
+        raise RuntimeError(f"mouth profile found only {len(out)} open stations (jaw closed or rays outside the head?)")
+    return out
+
+
+def prof_at(prof, y, key):
+    return float(np.interp(y, [p["y"] for p in prof], [p[key] for p in prof]))
+
+
+def half_width(tree, y, z):
+    loc, _, _, _ = tree.ray_cast(V((0.5, y, z)), -X, 0.5)
+    return None if loc is None else loc.x
+
+
+def build_teeth(tree, prof, name, spacing=0.021, upper=0.021, lower=0.018, fangs_upper=(1, 2), fangs_lower=(1,), fang_scale=1.7,
+                gap_frac=0.62, taper=0.35):
+    teeth = pm.Part(name)
+    y_front, y_back = prof[0]["y"] + 0.004, prof[-1]["y"]
+    stats = {"upper": 0, "lower": 0, "skipped": 0, "longest_mm": 0.0}
+    for jaw, nominal, offset, fangs in (("upper", upper, 0.0, fangs_upper), ("lower", lower, spacing / 2, fangs_lower)):
+        ys = np.arange(y_front + offset, y_back, spacing)
+        for k, y in enumerate(ys):
+            zm = prof_at(prof, y, "zm")
+            zprobe = prof_at(prof, y, "zu" if jaw == "upper" else "zl") + (0.004 if jaw == "upper" else -0.004)
+            w = half_width(tree, y, zprobe)
+            if w is None:
+                stats["skipped"] += 1
+                continue
+            x = (0.55 if k == 0 else 0.80) * w
+            out = Z if jaw == "upper" else -Z
+            root, rn, _, _ = tree.ray_cast(V((x, y, zm)), out, 0.12)
+            far, _, _, _ = tree.ray_cast(V((x, y, zm)), -out, 0.12)
+            if root is None or rn.dot(out) > -0.2:
+                stats["skipped"] += 1
+                continue
+            gap = (root - far).length if far is not None else 0.1
+            L = min(nominal * (1.0 - taper * k / max(len(ys) - 1, 1)) * (fang_scale if k in fangs else 1.0), gap_frac * gap)
+            if L < 0.005:
+                stats["skipped"] += 1
+                continue
+            d = (-out * 0.96 + Y * 0.22 + V((0.06, 0, 0))).normalized()
+            base = root + out * 0.0035
+            rb = min(0.24 * L, 0.0065)
+            teeth.sweep([base, base + d * L * 0.55, base + d * L * 0.95 + Y * 0.06 * L],
+                        [(rb * 0.72, rb, rb, 2.0), (rb * 0.55, rb * 0.78, rb * 0.78, 2.0), (0.0006, 0.0006, 0.0006, 2.0)],
+                        "tooth", N=10, step=max(L / 6, 0.003), frame="hint", hint=X, start="cap", end="tip", tip=1.0)
+            stats[jaw] += 1
+            stats["longest_mm"] = max(stats["longest_mm"], round(L * 1000, 1))
+    return teeth, stats
+
+
+def build_tongue(tree, prof, name, width=0.018, reach=0.40, fork=0.034, min_gap=0.02):
+    deep = [p["y"] for p in prof if p["zu"] - p["zl"] >= min_gap]
+    if not deep:
+        raise RuntimeError(f"tongue: mouth gap under {min_gap * 1000:.0f} mm everywhere")
+    y_back = max(deep)
+    y_tip = prof[0]["y"] + reach * (y_back - prof[0]["y"])
+    pts = []
+    for y in np.linspace(y_back, y_tip, 9):
+        loc, nrm, _, _ = tree.ray_cast(V((0.0, y, prof_at(prof, y, "zm"))), -Z, 0.12)
+        if loc is not None and nrm.z > 0.2:
+            pts.append(loc + Z * 0.0045)
+    if len(pts) < 4:
+        raise RuntimeError("tongue: jaw floor not found")
+    tongue = pm.Part(name)
+    w = width
+    tongue.sweep(pts, sections([(w, 0.0055, 0.0055, 2.4), (w * 1.05, 0.006, 0.0055, 2.4), (w * 0.95, 0.0055, 0.005, 2.4),
+                                (w * 0.67, 0.0045, 0.004, 2.2)], len(pts)), "tongue", N=16, step=0.006, frame="h",
+                 start="cap", end="cap" if fork > 0 else "tip", tip=0.8)
+    F, f = pts[-1], (pts[-1] - pts[-2]).normalized()
+    for s in ((1, -1) if fork > 0 else ()):  # fork=0: plain rounded tip (most non-squamates)
+        tip = F + f * fork + V((0.010 * s, 0, 0.002))
+        tongue.sweep([F - f * 0.006, F + f * fork * 0.4 + V((0.004 * s, 0, 0.001)), tip],
+                     [(0.0065, 0.004, 0.0035, 2.2), (0.004, 0.0028, 0.0025, 2.2), (0.0008, 0.0008, 0.0008, 2.0)],
+                     "tongue", N=10, step=0.004, frame="h", start="cap", end="tip", tip=1.0)
+    return tongue, round((pts[-1] - pts[0]).length + fork, 3)
+
+
+def mouth_weights(me, tree, prof):
+    """w_mouth: surface seen from the mouth's inner axis and facing it (palate, jaw floor, inner lips)."""
+    c = sd.coords(me)
+    nrm = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get("normal", nrm)
+    nrm = nrm.reshape(-1, 3)
+    y0, y1 = prof[0]["y"] - 0.05, prof[-1]["y"] + 0.03
+    zlo, zhi = min(p["zl"] for p in prof) - 0.12, max(p["zu"] for p in prof) + 0.12
+    sel = np.where((c[:, 1] > y0) & (c[:, 1] < y1) & (np.abs(c[:, 0]) < 0.2) & (c[:, 2] > zlo) & (c[:, 2] < zhi))[0]
+    axis = [np.array((0.0, prof[0]["y"] - 0.03, prof[0]["zm"]))] + [np.array((0.0, p["y"], p["zm"])) for p in prof]
+    cs = c[sel]
+    best, foot = np.full(len(sel), 1e9), np.zeros((len(sel), 3))
+    for a, b in zip(axis, axis[1:]):
+        d, p, _ = seg_dist(cs, a, b)
+        closer = d < best
+        best = np.where(closer, d, best)
+        foot[closer] = p[closer]
+    w = np.zeros(len(c))
+    for k, i in enumerate(sel):
+        v, a = V(c[i]), V(foot[k])
+        dvec = v - a
+        dist = dvec.length
+        if dist < 1e-6:
+            continue
+        facing = V(nrm[i]).dot(-dvec) / dist
+        if facing <= 0.05:
+            continue
+        loc, _, _, _ = tree.ray_cast(a, dvec / dist, dist + 0.002)
+        if loc is not None and (loc - v).length < 0.0025:
+            w[i] = float(smoothstep(0.05, 0.35, facing))
+    return w
+
+
+def lip_weights(c, w_mouth, head_mask):
+    idx = np.where(w_mouth > 0.5)[0]
+    w = np.zeros(len(c))
+    if len(idx) == 0:
+        return w
+    kd = KDTree(len(idx))
+    for j, i in enumerate(idx):
+        kd.insert(c[i], j)
+    kd.balance()
+    for i in np.where(head_mask)[0]:
+        w[i] = (1.0 - float(smoothstep(0.004, 0.016, kd.find(c[i])[2]))) * (1.0 - w_mouth[i])
+    return w
+
+
+# =========================================================================== eyes
+def sph(axis, e1, e2, theta, phi):
+    return axis * math.cos(theta) + (e1 * math.cos(phi) + e2 * math.sin(phi)) * math.sin(theta)
+
+
+def build_eyes(cr, eye_ref):
+    """Eyeball (eye_local attribute for the iris shader), gloss cornea cap, upper and lower lid caps."""
+    e = cr.eye
+    r, sink = e["radius"], e.get("sink", 0.003)
+    ep, en = eye_ref
+    c = ep - en * (r - sink)
+    up = (Z - en * en.dot(Z)).normalized()
+    side = up.cross(en)
+    eyes = pm.Part(cr.prefix + "Eyes")
+    el = eyes.bm.verts.layers.float_vector.new("eye_local")  # before any geometry (layer creation invalidates refs)
+    faces = eyes.sphere(c, r, "eye", segs=48, rings_=24)
+    for v in {v for f in faces for v in f.verts}:
+        d = (v.co - c) / r
+        v[el] = V((d.dot(side), d.dot(up), d.dot(en)))
+    cornea = pm.Part(cr.prefix + "Cornea")
+    cornea.patch(lambda u, v: c + sph(en, side, up, rad(52) * u, 2 * math.pi * v) * r * 1.035, 8, 32, 0.02, 0.1, "cornea")
+    cornea.pack_uvs()
+    bmesh.ops.remove_doubles(cornea.bm, verts=cornea.bm.verts[:], dist=1e-6)
+    lids = pm.Part(cr.prefix + "Eyelids")
+    (t_up, a_up), (t_lo, a_lo) = e.get("lid_up", (20, 48)), e.get("lid_lo", (15, 42))
+    for axis, alpha in (((up * math.cos(rad(t_up)) + en * math.sin(rad(t_up))).normalized(), rad(a_up)),
+                        ((-up * math.cos(rad(t_lo)) + en * math.sin(rad(t_lo))).normalized(), rad(a_lo))):
+        e1 = axis.cross(side).normalized()
+        e2 = axis.cross(e1)
+        # 6 x 24 is enough for a cap that is mostly buried in the head (Exp 6 used 10 x 40: 7k triangles)
+        lids.patch(lambda u, v, a=axis, e1=e1, e2=e2, al=alpha: c + sph(a, e1, e2, rad(3) + (al - rad(3)) * u, 2 * math.pi * v) * r * 1.07,
+                   6, 24, 0.03, 0.15, "skin")
+    lids.pack_uvs()
+    bmesh.ops.remove_doubles(lids.bm, verts=lids.bm.verts[:], dist=1e-6)
+    bmesh.ops.solidify(lids.bm, geom=lids.bm.faces[:], thickness=0.11 * r)
+    for f in lids.bm.faces:
+        f.smooth = True
+    eyes.pack_uvs()
+    for part in (eyes, cornea, lids):
+        part.packed = True
+    return [(eyes, True), (cornea, True), (lids, True)], c
+
+
+# =========================================================================== body fields
+def body_fields(cr, me, w_mouth, w_lip):
+    """Per-vertex body coordinates (body_st) and region weights for detail_materials.body_skin."""
+    c = sd.coords(me)
+    n = len(c)
+    chains = [("spine", dense(cr.spine(), 0.02))]
+    for g, pts in list(cr.field_chains()) + [("toe", ch) for ch in cr.toe_chains]:
+        step = 0.006 if g == "toe" else 0.02
+        sides = (1, -1) if g in cr.mirrored_groups else (1,)
+        for s in sides:
+            chains.append((g, [mx(p, s) for p in dense(pts, step)]))
+    groups = sorted({g for g, _ in chains})
+    gmin = {g: np.full(n, 1e9) for g in groups}
+    best = np.full(n, 1e9)
+    b_group = np.zeros(n, int)
+    b_s, b_foot, b_tan = np.zeros(n), np.zeros((n, 3)), np.zeros((n, 3))
+    for g, pts in chains:
+        P = [np.array(p, float) for p in pts]
+        arc = 0.0
+        for a, b in zip(P, P[1:]):
+            L = float(np.linalg.norm(b - a))
+            if L < 1e-9:
+                continue
+            d, p, t = seg_dist(c, a, b)
+            gmin[g] = np.minimum(gmin[g], d)
+            closer = d < best
+            best = np.where(closer, d, best)
+            b_group[closer] = groups.index(g)
+            b_s[closer] = arc + t[closer] * L
+            b_foot[closer] = p[closer]
+            b_tan[closer] = (b - a) / L
+            arc += L
+    stack = np.sort(np.stack([gmin[g] for g in groups]), axis=0)
+    member = 1.0 - smoothstep(0.80, 0.95, stack[0] / np.maximum(stack[1], 1e-9)) if len(groups) > 1 else np.ones(n)
+    r = c - b_foot
+    r -= (r * b_tan).sum(1)[:, None] * b_tan
+    r /= np.maximum(np.linalg.norm(r, axis=1), 1e-9)[:, None]
+    side = np.cross(b_tan, [0.0, 0.0, 1.0])
+    weak = np.linalg.norm(side, axis=1) < 0.3
+    side[weak] = np.array([1.0, 0, 0]) - (b_tan[weak] @ np.array([1.0, 0, 0]))[:, None] * b_tan[weak]
+    side /= np.maximum(np.linalg.norm(side, axis=1), 1e-9)[:, None]
+    up = np.cross(side, b_tan)
+    cos_up = (r * up).sum(1)
+    t_coord = np.arccos(np.clip(-cos_up, -1, 1)) * best
+    is_spine = b_group == groups.index("spine")
+    is_toe = (b_group == groups.index("toe")) if "toe" in groups else np.zeros(n, bool)
+    m_spine, m_toe = member * is_spine, member * is_toe
+    w_up = np.where(is_spine, 0.5 + 0.5 * cos_up, 0.5 + 0.5 * r[:, 2])
+    w_head = (1.0 - smoothstep(cr.head_y[0], cr.head_y[1], c[:, 1])) * smoothstep(cr.head_z[0], cr.head_z[1], c[:, 2])
+    attrs = {"w_up": w_up,
+             "w_dorsal": smoothstep(0.30, 0.55, cos_up) * m_spine * (1 - w_head),
+             "w_belly": smoothstep(math.cos(rad(57)), math.cos(rad(43)), -cos_up) * m_spine * (1 - w_mouth),
+             "w_head": w_head * (1 - w_mouth),
+             "w_tail": smoothstep(cr.tail_y[0], cr.tail_y[1], c[:, 1]) * m_spine,
+             "w_foot": smoothstep(-0.35, 0.0, r[:, 2]) * m_toe,
+             "w_lip": w_lip, "w_mouth": w_mouth}
+    for name, val in attrs.items():
+        a = me.attributes.get(name) or me.attributes.new(name, "FLOAT", "POINT")
+        a.data.foreach_set("value", np.clip(val, 0, 1).astype(np.float32))
+    st = me.attributes.get("body_st") or me.attributes.new("body_st", "FLOAT_VECTOR", "POINT")
+    st.data.foreach_set("vector", np.stack([b_s, t_coord, np.zeros(n)], 1).astype(np.float32).ravel())
+    return {k: int((v > 0.5).sum()) for k, v in attrs.items()}
+
+
+# =========================================================================== objects, game mesh, bake
+def to_object(part, collection, parent, mats):
+    bmesh.ops.recalc_face_normals(part.bm, faces=part.bm.faces[:])
+    me = bpy.data.meshes.new(part.name)
+    part.bm.to_mesh(me)
+    part.bm.free()
+    for key in part.mats:
+        me.materials.append(mats[key])
+    ob = bpy.data.objects.new(part.name, me)
+    collection.objects.link(ob)
+    ob.parent = parent
+    return ob
+
+
+def duplicate(src, name, col):
+    ob = src.copy()
+    ob.data = src.data.copy()
+    ob.name = ob.data.name = name
+    col.objects.link(ob)
+    return ob
+
+
+def apply_mods(ob):
+    me = bpy.data.meshes.new_from_object(ob.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+    ob.modifiers.clear()
+    old = ob.data
+    ob.data = me
+    bpy.data.meshes.remove(old)
+
+
+def select_only(*obs, active=None):
+    for o in bpy.context.scene.objects:
+        if o is not None:
+            o.select_set(False)
+    for o in obs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = active or obs[0]
+
+
+def deviation(sample, ob, regions):
+    tree = BVHTree.FromObject(ob, bpy.context.evaluated_depsgraph_get())
+    d = np.array([tree.find_nearest(p)[3] for p in sample]) * 1000.0
+    out, rest = {}, np.ones(len(sample), bool)
+    for name, test in regions.items():
+        m = test(sample) & rest
+        rest &= ~m
+        if m.any():
+            out[name] = {"max_mm": round(float(d[m].max()), 1), "mean_mm": round(float(d[m].mean()), 2)}
+    if rest.any():
+        out["rest"] = {"max_mm": round(float(d[rest].max()), 1), "mean_mm": round(float(d[rest].mean()), 2)}
+    out["all"] = {"max_mm": round(float(d.max()), 1), "mean_mm": round(float(d.mean()), 2), "p99_mm": round(float(np.percentile(d, 99)), 1)}
+    return out
+
+
+def bake_maps(cr, high, low, ov, sizes):
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    mat = bpy.data.materials.new(cr.prefix + "body_baked")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    texs, rec = {}, {}
+    for key, size in sizes.items():
+        img = bpy.data.images.new(f"{cr.prefix}Body_{key}", size, size, alpha=False, float_buffer=False)
+        img.colorspace_settings.name = "sRGB" if key == "color" else "Non-Color"
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        texs[key] = tex
+    low.data.materials.clear()
+    low.data.materials.append(mat)
+    jobs = [("normal", "NORMAL", 1, {}), ("color", "DIFFUSE", 1, {"pass_filter": {"COLOR"}}),
+            ("roughness", "ROUGHNESS", 1, {}), ("ao", "AO", 64, {})]
+    select_only(high, low, active=low)
+    for key, btype, samples, extra in jobs:
+        scene.cycles.samples = samples
+        scene.render.bake.margin = 16 if sizes[key] >= 4096 else 8
+        nt.nodes.active = texs[key]
+        t = time.perf_counter()
+        kw = dict(type=btype, use_selected_to_active=True, cage_extrusion=0.015, max_ray_distance=0.05, **extra)
+        if btype == "NORMAL":
+            kw["normal_space"] = "TANGENT"
+        with bpy.context.temp_override(**dict(ov, active_object=low, object=low, selected_objects=[high, low],
+                                              selected_editable_objects=[high, low])):
+            try:
+                res = str(bpy.ops.object.bake(**kw))
+            except RuntimeError as exc:
+                res = f"failed: {exc}"
+                cr.log["errors"].append(f"bake {key}: {exc}")
+        texs[key].image.pack()
+        px = np.empty(sizes[key] * sizes[key] * 4, np.float32)
+        texs[key].image.pixels.foreach_get(px)
+        rec[key] = {"size": sizes[key], "result": res, "seconds": round(time.perf_counter() - t, 2),
+                    "mean_rgb": [round(float(v), 3) for v in px.reshape(-1, 4)[:, :3].mean(0)]}
+    mul = nt.nodes.new("ShaderNodeMix")
+    mul.data_type, mul.blend_type = "RGBA", "MULTIPLY"
+    dm.sock(mul.inputs, "Factor_Float").default_value = 1.0
+    nt.links.new(texs["color"].outputs["Color"], dm.sock(mul.inputs, "A_Color"))
+    nt.links.new(texs["ao"].outputs["Color"], dm.sock(mul.inputs, "B_Color"))
+    nt.links.new(dm.sock(mul.outputs, "Result_Color"), bsdf.inputs["Base Color"])
+    nt.links.new(texs["roughness"].outputs["Color"], bsdf.inputs["Roughness"])
+    nmap = nt.nodes.new("ShaderNodeNormalMap")
+    nt.links.new(texs["normal"].outputs["Color"], nmap.inputs["Color"])
+    nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    return rec
+
+
+def build_game_mesh(cr, high, col, ov, sizes):
+    sample = sd.coords(high.data)[::8]
+    regions = cr.regions()
+    rec = {}
+    q = duplicate(high, cr.prefix + "Body_QF", col)
+    select_only(q)
+    t = time.perf_counter()
+    with bpy.context.temp_override(**dict(ov, active_object=q, object=q, selected_objects=[q], selected_editable_objects=[q])):
+        try:
+            bpy.ops.object.quadriflow_remesh(target_faces=cr.retopo_faces, use_mesh_symmetry=False, use_preserve_sharp=False,
+                                             use_preserve_boundary=False, seed=0, mode="FACES")
+        except RuntimeError as exc:
+            rec["quadriflow_error"] = repr(exc)
+    sw = q.modifiers.new("Project", "SHRINKWRAP")
+    sw.target, sw.wrap_method = high, "NEAREST_SURFACEPOINT"
+    apply_mods(q)
+    dev = deviation(sample, q, regions)
+    ok = all(v["max_mm"] <= cr.gate_max_mm and v["mean_mm"] <= cr.gate_mean_mm for k, v in dev.items() if k != "all")
+    rec["quadriflow"] = {"faces": len(q.data.polygons), "seconds": round(time.perf_counter() - t, 2), "deviation": dev, "accepted": ok}
+    if ok:
+        low = q
+    else:
+        bpy.data.objects.remove(q)
+        low = duplicate(high, cr.prefix + "Body_Decimated", col)
+        t = time.perf_counter()
+        ratio = cr.decimate_tris / (2.0 * len(high.data.polygons))
+        m = low.modifiers.new("Decimate", "DECIMATE")
+        m.decimate_type, m.use_collapse_triangulate, m.ratio = "COLLAPSE", True, ratio
+        apply_mods(low)
+        low.data.calc_loop_triangles()
+        rec["decimate"] = {"ratio": round(ratio, 4), "triangles": len(low.data.loop_triangles),
+                           "seconds": round(time.perf_counter() - t, 2), "deviation": deviation(sample, low, regions)}
+    low.name = low.data.name = cr.prefix + "Body"
+    for a in [a.name for a in low.data.attributes if a.name == "body_st" or a.name.startswith("w_")]:
+        low.data.attributes.remove(low.data.attributes[a])
+    select_only(low)
+    with bpy.context.temp_override(**dict(ov, active_object=low, object=low, selected_objects=[low], selected_editable_objects=[low])):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        rec["smart_uv"] = str(bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.003))
+        bpy.ops.object.mode_set(mode="OBJECT")
+    low.data.shade_smooth()
+    t = time.perf_counter()
+    rec["bake"] = bake_maps(cr, high, low, ov, sizes)
+    rec["bake_seconds"] = round(time.perf_counter() - t, 2)
+    camera_setup.configure_render(bpy.context.scene)
+    low.data.calc_loop_triangles()
+    rec["low_triangles"] = len(low.data.loop_triangles)
+    return low, rec
+
+
+def save_blend(path):
+    tmp = os.path.join(tempfile.mkdtemp(prefix="crt_"), os.path.basename(path))
+    bpy.ops.wm.save_as_mainfile(filepath=tmp, compress=False, copy=True)
+    shutil.move(tmp, camera_setup._long_path(path))
+
+
+# =========================================================================== pipeline
+def build(cr, out_dir):
+    log = cr.log
+    bpy.context.preferences.filepaths.save_version = 0
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o)
+    mats = dm.build_all(palette=cr.palette, stripes=cr.stripes, prefix=cr.prefix + "M_")
+    scene = bpy.context.scene
+    settings = camera_setup.load_settings()
+    col = camera_setup.ensure_collection(settings["collections"]["model"], scene)
+    root = bpy.data.objects.new(cr.prefix + "Root", None)
+    col.objects.link(root)
+    camera_setup.build_rig(scene)
+
+    bm = cr.build_base()
+    me = bpy.data.meshes.new(cr.prefix + "Body_HighRes")
+    bm.to_mesh(me)
+    bm.free()
+    high = bpy.data.objects.new(cr.prefix + "Body_HighRes", me)
+    col.objects.link(high)
+    high.parent = root
+    select_only(high)
+    log["loft_faces"] = len(me.polygons)
+    sub = high.modifiers.new("Subdivision", "SUBSURF")
+    sub.levels = sub.render_levels = 2
+    apply_mods(high)                         # Catmull-Clark first: voxel remesh reproduces raw loft facets
+    cr.mark("lofts_built")
+    sc = None if DRY_RUN else sd.Sculptor(high, log)
+    ov = sc.ov() if sc else {"active_object": high, "object": high}
+    me = high.data                           # apply_mods replaced the datablock
+    me.remesh_voxel_size, me.remesh_voxel_adaptivity = cr.voxel, 0.0
+    for prop in ("use_remesh_fix_poles", "use_remesh_preserve_volume"):
+        if hasattr(me, prop):
+            setattr(me, prop, True)
+    with bpy.context.temp_override(**ov):
+        bpy.ops.object.voxel_remesh()
+    high.data.shade_smooth()
+    log["fused_faces"] = len(high.data.polygons)
+    cr.mark("voxel_fused")
+
+    if sc:
+        sc.mode("SCULPT")
+        sc.phase = "fillet"
+        sc.cavity_fillet(iterations=30)
+        for phase, specs in cr.strokes():
+            sc.phase = phase
+            for s in specs:
+                sc.stroke(s)
+        sc.mode("OBJECT")
+        lo = [(s["label"], s["target_mm"], s["achieved_mm"]) for s in log["strokes"]
+              if s["target_mm"] and not 0.7 * s["target_mm"] <= s["achieved_mm"] <= 1.6 * s["target_mm"]]
+        log["strokes_off_target"] = lo
+    cr.mark("sculpted" if sc else "sculpt_skipped_dry_run")
+
+    high.data.update()
+    tree = BVHTree.FromObject(high, bpy.context.evaluated_depsgraph_get())
+    feats = cr.features(tree)                # references taken before any carving
+    eye_ref = None
+    for f in feats:
+        if f["name"] == "eye":
+            eye_ref = f["ref"]
+        p, nrm = f["ref"]
+        for s in (1, -1):
+            log.setdefault("displaced_vertices", {}).setdefault(f["name"], []).append(
+                displace(high.data, mx(p, s), mx(nrm, s), f["radius"], f["depth"], f["rim"], f.get("upper", 0.0)))
+    cr.mark("features_carved")
+
+    high.data.update()
+    tree = BVHTree.FromObject(high, bpy.context.evaluated_depsgraph_get())
+    c = sd.coords(high.data)
+    prof, w_mouth = None, np.zeros(len(c))
+    if cr.mouth:
+        prof = mouth_profile(tree, cr.mouth["head_pts"], cr.mouth["head_shapes"], cr.mouth["y_back"])
+        log["mouth_profile"] = [{k: round(v, 4) for k, v in p.items()} for p in prof]
+        w_mouth = mouth_weights(high.data, tree, prof)
+    head_mask = (c[:, 1] < cr.head_y[1] + 0.02) & (c[:, 2] > cr.head_z[0] - 0.05)
+    w_lip = lip_weights(c, w_mouth, head_mask)
+    log["field_vertices_over_half"] = body_fields(cr, high.data, w_mouth, w_lip)
+    high.data.materials.append(mats["body"])
+    cr.mark("fields_written")
+
+    ctx = {"tree": tree, "prof": prof, "eye_ref": eye_ref, "info": cr.info, "rng": np.random.default_rng(6), "high": high}
+    parts = []
+    if cr.eye and eye_ref:
+        eye_parts, centre = build_eyes(cr, eye_ref)
+        parts += eye_parts
+        log["eye_center"] = [round(v, 4) for v in centre]
+    if prof:
+        t = cr.mouth.get("teeth")
+        if t is not None:
+            teeth, log["teeth"] = build_teeth(tree, prof, cr.prefix + "Teeth", **t)
+            parts.append((teeth, True))
+        g = cr.mouth.get("tongue")
+        if g is not None:
+            tongue, log["tongue_length_m"] = build_tongue(tree, prof, cr.prefix + "Tongue", **g)
+            parts.append((tongue, False))
+    parts += cr.inserts(ctx)
+    objs = []
+    for part, mirror in parts:
+        if not getattr(part, "packed", False):
+            part.pack_uvs()
+        if mirror:
+            part.mirror_x()
+        objs.append(to_object(part, col, root, mats))
+    log["inserts"] = {o.name: len(o.data.polygons) for o in objs}
+    claws_z = [min((o.matrix_world @ v.co).z for v in o.data.vertices) for o in objs if "Claw" in o.name]
+    log["lowest_claw_z_mm"] = round(min(claws_z) * 1000, 2) if claws_z else None
+    cr.mark("inserts_built")
+    save_blend(os.path.join(out_dir, f"{cr.name}_highres.blend"))
+    cr.mark("highres_saved")
+
+    sizes = {k: 512 for k in cr.bake} if DRY_RUN else cr.bake
+    low, rec = build_game_mesh(cr, high, col, ov, sizes)
+    low.parent = root
+    log["game_mesh"] = rec
+    cr.mark("game_mesh_baked")
+    bpy.data.objects.remove(high)
+    save_blend(os.path.join(out_dir, f"{cr.name}.blend"))
+    cr.mark("game_saved")
+    log["objects"] = [o.name for o in col.objects]
+
+
+def run(cr, script_file):
+    """Entry point for creature scripts: run(MyCreature(), __file__)."""
+    if cr.settings:
+        os.environ["CREATURE_SETTINGS"] = cr.settings
+        camera_setup.SETTINGS_PATH = cr.settings
+    out_dir = tempfile.mkdtemp(prefix=f"{cr.name}_dry_") if DRY_RUN else (cr.out_dir or os.path.dirname(os.path.abspath(script_file)))
+    too_long = [p for p in (os.path.abspath(script_file), os.path.join(HERE, "material_palette.py")) if len(p) > 250]
+    if too_long:  # Blender's file loaders and image writers fail past 260 characters on Windows
+        print(f"[bench] WARNING paths near the Windows 260-character limit: {too_long}")
+
+    def tick():
+        try:
+            build(cr, out_dir)
+        except Exception:  # noqa: BLE001
+            cr.log["errors"].append(traceback.format_exc())
+            print(traceback.format_exc())
+        cr.log["total_seconds"] = round(time.perf_counter() - T0, 2)
+        cr.log["output_dir"] = out_dir
+        with open(camera_setup._long_path(os.path.join(out_dir, f"{cr.name}_log.json")), "w", encoding="utf-8") as fh:
+            json.dump(cr.log, fh, indent=1, default=str)
+        print(f"[bench] log -> {out_dir}  errors: {len(cr.log['errors'])}")
+        sys.stdout.flush()
+        if cr.log["errors"]:
+            os._exit(1)  # honest exit code (quit_blender always returns 0)
+        bpy.ops.wm.quit_blender()
+
+    if DRY_RUN:
+        print(f"[bench] DRY RUN (no sculpt) -> {out_dir}")
+        tick()
+    elif bpy.app.background:
+        raise SystemExit("Sculpt mode needs the Blender GUI; use CREATURE_DRY_RUN=1 for a headless test.")
+    else:
+        bpy.app.timers.register(tick, first_interval=2.0)

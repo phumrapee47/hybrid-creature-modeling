@@ -1,0 +1,456 @@
+{
+ "benchmark_version": 1,
+ "blender_version_used": "5.2.2 LTS",
+ "units": {
+  "system": "METRIC",
+  "scale_length": 1.0,
+  "unit": "metre"
+ },
+ "orientation": {
+  "up": "+Z",
+  "dragon_faces": "-Y",
+  "dragon_left_side": "+X",
+  "ground_plane_z": 0.0
+ },
+ "collections": {
+  "model": "Creature",
+  "rig": "Benchmark_Rig"
+ },
+ "reference_bbox": {
+  "min": [
+   -0.45,
+   -1.2,
+   0.0
+  ],
+  "max": [
+   0.45,
+   1.85,
+   1.35
+  ]
+ },
+ "landmarks": {
+  "head_center": [
+   0.0,
+   -0.95,
+   1.19
+  ],
+  "chest_center": [
+   0.0,
+   -0.35,
+   0.9
+  ],
+  "hip_joint": [
+   0.14,
+   0.22,
+   0.88
+  ],
+  "knee": [
+   0.18,
+   0.09,
+   0.55
+  ],
+  "ankle": [
+   0.17,
+   0.275,
+   0.2
+  ],
+  "tail_tip": [
+   0.11,
+   1.8,
+   0.68
+  ]
+ },
+ "render": {
+  "engine": "CYCLES",
+  "device_preference": [
+   "CUDA",
+   "CPU"
+  ],
+  "device_note": "OptiX is excluded: on this machine (RTX 4050 Laptop) Blender 5.2.2 fails with OPTIX_ERROR_INTERNAL_COMPILER_ERROR when loading the OptiX kernel.",
+  "samples": 128,
+  "denoise": true,
+  "resolution": [
+   1600,
+   1200
+  ],
+  "view_transform": "Standard",
+  "look": "None",
+  "exposure": 0.0,
+  "max_bounces": 6
+ },
+ "world": {
+  "color_srgb": [
+   0.62,
+   0.63,
+   0.65
+  ],
+  "strength": 0.55
+ },
+ "floor": {
+  "size": 400.0,
+  "color_srgb": [
+   0.55,
+   0.55,
+   0.56
+  ],
+  "roughness": 0.85
+ },
+ "clay": {
+  "color_srgb": [
+   0.62,
+   0.62,
+   0.62
+  ],
+  "roughness": 0.55
+ },
+ "wireframe": {
+  "thickness": 0.0022,
+  "wire_color_srgb": [
+   0.05,
+   0.05,
+   0.06
+  ],
+  "base_color_srgb": [
+   0.8,
+   0.8,
+   0.8
+  ]
+ },
+ "silhouette": {
+  "engine": "BLENDER_WORKBENCH",
+  "model_color": [
+   0,
+   0,
+   0
+  ],
+  "background": [
+   1,
+   1,
+   1
+  ],
+  "hide_floor": true
+ },
+ "lights": [
+  {
+   "name": "Key",
+   "type": "AREA",
+   "location": [
+    3.6,
+    -4.2,
+    4.6
+   ],
+   "target": [
+    0.0,
+    0.2,
+    0.7
+   ],
+   "size": 3.0,
+   "energy": 520,
+   "color": [
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "name": "Fill",
+   "type": "AREA",
+   "location": [
+    -4.8,
+    -2.6,
+    2.4
+   ],
+   "target": [
+    0.0,
+    0.2,
+    0.7
+   ],
+   "size": 4.0,
+   "energy": 230,
+   "color": [
+    1,
+    1,
+    1
+   ]
+  },
+  {
+   "name": "Rim",
+   "type": "AREA",
+   "location": [
+    0.6,
+    5.2,
+    3.6
+   ],
+   "target": [
+    0.0,
+    0.0,
+    0.8
+   ],
+   "size": 3.0,
+   "energy": 320,
+   "color": [
+    1,
+    1,
+    1
+   ]
+  }
+ ],
+ "cameras": {
+  "front_ortho": {
+   "type": "ORTHO",
+   "location": [
+    0.0,
+    -12.0,
+    0.7
+   ],
+   "target": [
+    0.0,
+    0.0,
+    0.7
+   ],
+   "ortho_scale": 1.9
+  },
+  "side_ortho": {
+   "type": "ORTHO",
+   "location": [
+    12.0,
+    0.32,
+    0.7
+   ],
+   "target": [
+    0.0,
+    0.32,
+    0.7
+   ],
+   "ortho_scale": 3.4
+  },
+  "three_quarter": {
+   "type": "PERSP",
+   "location": [
+    3.6,
+    -4.0,
+    2.2
+   ],
+   "target": [
+    0.0,
+    0.28,
+    0.68
+   ],
+   "lens": 70
+  },
+  "head_closeup": {
+   "type": "PERSP",
+   "location": [
+    0.78,
+    -1.9,
+    1.42
+   ],
+   "target": [
+    0.0,
+    -0.95,
+    1.18
+   ],
+   "lens": 55
+  },
+  "rear_three_quarter": {
+   "type": "PERSP",
+   "location": [
+    -3.6,
+    4.4,
+    2.6
+   ],
+   "target": [
+    0.0,
+    0.28,
+    0.72
+   ],
+   "lens": 70
+  }
+ },
+ "views": [
+  {
+   "id": "01_front_ortho",
+   "camera": "front_ortho",
+   "shading": "clay",
+   "purpose": "Orthographic front form check (clay)"
+  },
+  {
+   "id": "02_side_ortho",
+   "camera": "side_ortho",
+   "shading": "clay",
+   "purpose": "Orthographic side form check (clay)"
+  },
+  {
+   "id": "03_three_quarter",
+   "camera": "three_quarter",
+   "shading": "material",
+   "purpose": "Front three-quarter perspective with shared materials"
+  },
+  {
+   "id": "04_head_closeup",
+   "camera": "head_closeup",
+   "shading": "material",
+   "purpose": "Skull, muzzle, jaw, eyes, horn attachment"
+  },
+  {
+   "id": "05_wireframe",
+   "camera": "three_quarter",
+   "shading": "wireframe",
+   "purpose": "Topology / density inspection of the final evaluated mesh"
+  },
+  {
+   "id": "06_silhouette",
+   "camera": "side_ortho",
+   "shading": "silhouette",
+   "purpose": "Pure black silhouette, side view"
+  },
+  {
+   "id": "07_clay",
+   "camera": "three_quarter",
+   "shading": "clay",
+   "purpose": "Neutral clay, same camera as 03 for direct clay-vs-material comparison"
+  },
+  {
+   "id": "08_material",
+   "camera": "rear_three_quarter",
+   "shading": "material",
+   "purpose": "Rear three-quarter material render: back, wings, spikes, tail"
+  }
+ ],
+ "statistics_definitions": {
+  "mesh_object_count": "Number of MESH objects in the Dragon collection after the build script finishes.",
+  "polygon_count": "Sum of faces of the evaluated (post-modifier) mesh of every Dragon mesh object.",
+  "triangle_count": "Sum of loop triangles of the evaluated meshes (what a game engine would receive).",
+  "vertex_count": "Sum of vertices of the evaluated meshes.",
+  "material_count": "Number of distinct materials referenced by Dragon mesh objects.",
+  "dimensions": "World-space axis-aligned bounding box of all evaluated Dragon vertices.",
+  "file_size": "Size in bytes of the saved .blend (uncompressed save).",
+  "script_time": "Wall-clock seconds of the build script measured inside Blender with time.perf_counter().",
+  "shells": "Connected mesh components per object (high values = assembled, non-unified parts).",
+  "non_manifold_edges": "Edges not shared by exactly two faces (open borders or intersecting/coincident geometry).",
+  "buried_surface_estimate": "Share of faces/area whose point 1.5 mm outside the face lies inside another closed shell of the model (ray-parity test). Measures hidden, wasted geometry from interpenetrating parts. Estimate: open shells make parity approximate."
+ },
+ "detail_views": [
+  {
+   "id": "d1_eye",
+   "target": {
+    "object": "RAP_Eyes",
+    "xmin": 0
+   },
+   "offset": [
+    0.28,
+    -0.2,
+    0.07
+   ],
+   "lens": 100,
+   "purpose": "Eye, lids, socket, lacrimal horn"
+  },
+  {
+   "id": "d2_mouth",
+   "target": {
+    "object": "RAP_Teeth",
+    "xmin": 0,
+    "x": 0.02
+   },
+   "offset": [
+    0.34,
+    -0.46,
+    -0.05
+   ],
+   "lens": 60,
+   "purpose": "Open mouth: teeth, gums, tongue"
+  },
+  {
+   "id": "d3_flank",
+   "target": [
+    0.15,
+    -0.1,
+    0.92
+   ],
+   "offset": [
+    0.48,
+    -0.22,
+    0.1
+   ],
+   "lens": 100,
+   "purpose": "Flank scales, stripes, countershading"
+  },
+  {
+   "id": "d4_belly",
+   "target": [
+    0.0,
+    -0.15,
+    0.78
+   ],
+   "offset": [
+    0.5,
+    0.05,
+    -0.42
+   ],
+   "lens": 60,
+   "purpose": "Ventral scutes from below"
+  },
+  {
+   "id": "d5_foot",
+   "target": {
+    "object": "RAP_Claws",
+    "xmin": 0,
+    "ymin": 0.0,
+    "zmax": 0.13
+   },
+   "offset": [
+    0.32,
+    -0.3,
+    0.14
+   ],
+   "lens": 70,
+   "purpose": "Foot: sickle claw, toe scutes, ground contact"
+  },
+  {
+   "id": "d6_hand",
+   "target": {
+    "object": "RAP_Claws",
+    "xmin": 0,
+    "ymax": -0.3,
+    "zmin": 0.4
+   },
+   "offset": [
+    0.3,
+    -0.26,
+    0.04
+   ],
+   "lens": 85,
+   "purpose": "Three-fingered hand and claws"
+  },
+  {
+   "id": "d7_tail",
+   "target": [
+    0.06,
+    1.05,
+    0.83
+   ],
+   "offset": [
+    0.55,
+    -0.25,
+    0.2
+   ],
+   "lens": 85,
+   "purpose": "Tail whorls, stripes, dorsal scutes"
+  },
+  {
+   "id": "d8_head_top",
+   "target": [
+    0.0,
+    -0.92,
+    1.22
+   ],
+   "offset": [
+    0.22,
+    -0.3,
+    0.32
+   ],
+   "lens": 70,
+   "purpose": "Skull top: brow ridges, nostrils, head plates"
+  }
+ ]
+}

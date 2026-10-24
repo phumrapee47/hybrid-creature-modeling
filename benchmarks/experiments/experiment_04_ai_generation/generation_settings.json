@@ -1,0 +1,63 @@
+{
+  "generator": "TRELLIS (Microsoft, open model 'TRELLIS-image-large') via public Hugging Face Space trellis-community/TRELLIS",
+  "access": "Gradio queue API over HTTPS, anonymous (no account, no token, no payment); free ZeroGPU (NVIDIA A10G) quota",
+  "date_utc": "2026-10-24T02:24:58.330145+00:00",
+  "mode": "image-to-3D, single image",
+  "text_prompt": null,
+  "input_image": "reference\\ref_three_quarter.png",
+  "input_preparation": "Rendered from the Experiment 3 sculpt (palette materials), 1024x1024 RGBA, transparent background; Space-side preprocessing = background removal + crop",
+  "settings": {
+    "seed": 1234,
+    "ss_guidance_strength": 7.5,
+    "ss_sampling_steps": 12,
+    "slat_guidance_strength": 3.0,
+    "slat_sampling_steps": 12,
+    "multiimage_algo": "stochastic",
+    "mesh_simplify": 0.95,
+    "texture_size": 1024
+  },
+  "server_seconds": {
+    "start_session": [
+      true,
+      1.9
+    ],
+    "preprocess_image": {
+      "success": true,
+      "seconds": 1.7
+    },
+    "generate_and_extract_glb": {
+      "success": true,
+      "seconds": 21.2
+    }
+  },
+  "total_seconds": 26.9,
+  "outputs": [
+    {
+      "file": "original_asset/single_view/trellis_output_1_sample.mp4",
+      "bytes": 372852
+    },
+    {
+      "file": "original_asset/single_view/trellis_output_2_sample.glb",
+      "bytes": 1526152
+    }
+  ],
+  "output_format": "GLB (glTF 2.0 binary): 1 mesh, 8,337 triangles, 1 UV map, 1024x1024 base-colour texture; plus MP4 turntable preview",
+  "failed_attempts": [
+    {
+      "generator": "Hunyuan3D-2.1 (Tencent) via tencent/Hunyuan3D-2.1, endpoint /generation_all (shape + texture)",
+      "error": "'The requested GPU duration (270s) is larger than the maximum allowedSubscribe to Hugging Face PRO to allow GPU tasks up to 40 min - https://huggingface.co/subscribe/pro?from=ZeroGPU'",
+      "note": "anonymous ZeroGPU tasks are capped below the 270 s this endpoint requests; HF PRO not purchased"
+    },
+    {
+      "generator": "TRELLIS multi-image (4 reference views)",
+      "inputs": [
+        "reference\\ref_three_quarter.png",
+        "reference\\ref_front.png",
+        "reference\\ref_left.png",
+        "reference\\ref_back.png"
+      ],
+      "error": "You have exceeded your ZeroGPU quota (120s requested vs. 160s left). Try again in 23:57:03. Authenticate with a Hugging Face token for more quota - https://huggingface.co/settings/tokens",
+      "note": "anonymous daily ZeroGPU quota exhausted after the single-image run"
+    }
+  ]
+}
