@@ -59,6 +59,9 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
 - `examples/dragon/`: **the benchmark dragon on the kit**, with the anatomy layer (26 volumes per side), the high-poly stage, wings, and settings with reference-style close-up views. Use it for any winged or quadruped creature.
 - `scripts/scale_field.py`: **geometric scales** (Phase B). Level 1 plates and Level 2 scales are displacement of the high-poly surface, driven by the body fields. Turn them on with `Creature.scales = True` or a dict of overrides (step 7b).
 - `scripts/reference_search.py`: finds realistic 3D models by other people to use as reference (step R). It reads public Sketchfab metadata anonymously, downloads nothing, and writes a candidate list plus a thumbnail contact sheet.
+- `scripts/surface_plan.py` (v1.3): **what surface belongs where.** A schema per body region, with a default plan that matches the current output exactly (step 1b).
+- `tests/run_tests.py` and `tests/dry_run_examples.py` (v1.3): unit tests run headless in Blender, and dry runs of all three examples that clean up after themselves. Run both after any kit change.
+  - The 18 unit tests cover: the plan schema, backward compatibility of the scale spec, the golden scale displacement, the stroke guard, skin collars, `follow_chains`, joint relief, relief-metric calibration, material variants and palette reset, the fur interface, and a hair API smoke test.
 - `scripts/quality_metrics.py`: geometry-only measurements. Shader bump and normal maps are invisible to it.
   - mesh resolution;
   - relief bands: fine, medium, secondary;
@@ -85,6 +88,7 @@ Core idea: **proportions first (lofts), unification second (voxel fuse), anatomy
    - `mouth` / `eye` dicts.
    - `inserts(ctx)`: horns, spikes, claws (`ck.claw` for every entry in `self.toe_tips`), wings.
    - Class attributes: `palette`, `stripes`, and the `head_y`, `head_z`, `tail_y` region bands.
+   - Optional `surface_plan`: region overrides saying which surface belongs where (step 1b). Leave it out to keep the defaults.
 4. Settings JSON: the reference bbox, camera framing for the creature's size, a collection name, and 8 `detail_views` that target its own inserts.
 5. Set `CREATURE_OUT_DIR` to a working folder: the high-poly file is about 300 MB, and builds must never write into the skill folder. Run `CREATURE_DRY_RUN=1 blender -b --factory-startup --python my_creature.py`. Then render previews with `CREATURE_SETTINGS=<json>` at 24 samples. Look at them, fix the data, and repeat.
 6. GUI run, then the full renders, `inspect_model.py`, review, and archive or iterate.
@@ -161,6 +165,13 @@ Anatomy anchors and strokes follow the moved limbs through `follow_limbs`.
 
 Still short of the reference: the brow (26 mm, target 30) and smaller, fewer crown spikes. Plates still cover the ridges, only smaller; there is no curvature mask.
 
+**Remaining gaps (step R v4 / R4b):**
+- **neck:** skin rolls with grooves between;
+- **flank:** scales in rows along the body rings (`flank_rows`);
+- **back:** keeled scutes in transverse rows;
+- **head:** brow 26 → 31 mm, dome 0.57 → 0.49, 4 crown horns and 4 cheek spikes, the masseter placed for the first time;
+- **Phase B gate passed:** fine relief p90 0.56–0.63 mm in all five regions (was 2 of 5 at or above 0.5 mm).
+
 **Rules:**
 - **Reference, never copy.** Do not trace, import or reproduce a reference's geometry, textures or distinctive design. Take principles: proportions, how forms work, scale size and flow.
 - **Viewing is free; downloading is not.** Viewing a public model in the browser is fine. Downloading a model file needs all three:
@@ -221,6 +232,79 @@ Put proportion fixes in this data, never in the sculpt.
 | Limbs | Digitigrade hind feet. The forefoot has a raised dewclaw. Every claw tip must stay above the ground plane (z ≥ 0). | Claws were 6.6 mm below the ground until the hook drop was clamped. |
 | Tail, spikes | The tail tapers continuously. Dorsal spikes grow and shrink along the spine and alternate major/minor with about ±8% seeded jitter. | |
 | Folds, tendons | Skin folds at the axilla, groin, throat (gular) and wing root. Tendons at the Achilles and forearm flexors. A jaw muscle (masseter) behind the eye. | |
+
+## 1b. Surface plan: what surface belongs where (v1.3)
+
+Decide the surface of every region before generating it. `surface_plan.DEFAULT_PLAN` lists:
+- the body regions the kit already distinguishes, each bound to a body-field weight (`w_dorsal`, `w_spine`, `w_head`, ...);
+- the inserts (eyes, teeth, tongue, horns, spines, claws, wing membranes).
+
+**Fields per region** (all optional except `region_id`):
+
+| Field | Meaning |
+|---|---|
+| `region_id` | Unique name |
+| `anatomical_role` | What the area does |
+| `primary_form` | The form underneath it |
+| `surface_type` | See the list below |
+| `detail_scale` | Scale, plate or hair size in metres |
+| `coverage_density` | 0..1; 0 switches the region off |
+| `surface_orientation` | `isotropic`, `along_chain`, `around_chain`, `rows_along_body`, `transverse_rows`, `radial`, `growth_direction`, `not_applicable` |
+| `material_profile` | Material key (`body`, `claw`, ...), or a variant `key:variant` (see below) |
+| `geometry_strategy` | `scale_field:<layer>`, `insert:<name>`, `shader_only`, `sculpt`, `fur_groom`, `none` |
+| `deformation_requirements` | `rigid`, `flexible`, `stretch`, `fold` |
+
+Optional: `weight`, `scale` (overrides for the region's scale layer), `enabled`, `notes`, `fur` (fur-type regions only).
+
+**Surface types:** exposed skin, reptilian scales, armor plates, spines, horn, claw, teeth, eye, tongue, membrane, fur, mane, whiskers, feathers, custom.
+
+**Material variants** (`detail_materials.VARIANTS`). A plain key keeps the v1.2 material; a variant changes only its listed parameters. An unknown variant stops the build.
+
+| Variant | Change | Use when |
+|---|---|---|
+| `claw:matte` | roughness 0.42, coat 0.06 (v1.2: 0.28, coat 0.35) | v1.2 claws read as lacquered |
+| `horn:matte`, `spike:matte` | roughness 0.55, no coat | weathered keratin |
+| `tooth:enamel` | roughness 0.30, coat 0.25, SSS 0.25 | teeth look plastic |
+| `body:sss` | SSS 0.06, radius (1.0, 0.35, 0.2), scale 4 mm; carried to the baked game material | skin looks like painted stone |
+
+Set one body region (`skin_base`) to `body:sss` to switch it on for the whole body material. The palette resets to `material_palette.PALETTE` on every `build_all`, so one creature's colours never leak into the next build in the same session.
+
+**Planned only:** fur, mane, whiskers and feathers have no generator yet. The plan accepts them, and the build log reports them under `fur_planned`; never fake them with spikes or cones. A fur-type region may carry `fur` parameters, validated now so a future generator can use them. Each one names the Blender 5.2 bundled hair node group it is meant to drive (`procedural_hair_node_assets.blend`; the smoke test checks that they exist):
+
+| `fur` field | Default | Range | Node group |
+|---|---|---|---|
+| `length` | 0.03 m | 0.1 mm – 2 m | Generate Hair Curves |
+| `density` | 20 /cm² | 0.01 – 2000 | Interpolate Hair Curves |
+| `guide_spacing` | 0.02 m | 1 mm – 0.5 m | Generate Hair Curves |
+| `clump` | 0.3 | 0 – 1 | Clump Hair Curves |
+| `curl` | 0.0 | 0 – 1 | Curl Hair Curves |
+| `frizz` | 0.1 | 0 – 1 | Frizz Hair Curves |
+| `root_width` | 0.4 mm | 0.01 – 10 mm | Set Hair Curve Profile |
+| `root_hex`, `tip_hex` | – | `#RRGGBB` | (material) |
+
+Limits of v1.3 fur: no guides, no grooming, no hair material, no game export. A furred creature built today has bare skin where the plan says fur, and the log says so.
+
+**Overriding a region.** Set `Creature.surface_plan` to a list of region dicts. Matching `region_id`s override the defaults; new ids are added. For example:
+```python
+surface_plan = [{"region_id": "flank", "enabled": True, "scale": {"size": (0.016, 0.014)}},
+                {"region_id": "paravertebral", "coverage_density": 0}]
+```
+
+**Resolving.** The kit resolves and validates the plan at the start of every build, so an invalid plan stops the build. It writes the plan and each region's vertex count to the log (`surface_plan`, `surface_region_vertices`).
+
+**Today the plan controls:**
+- each scale layer's parameters;
+- whether each scale layer is on or off;
+- material variants (`material_profile`);
+- joint relief: with `Creature.joint_relief > 0`, scales on limb regions planned as `flexible` drop by that fraction at the joints (step 7b).
+
+The creature's own `scales` dict still wins, so a v1.2 creature gets exactly the same scale spec (tested). A golden test pins the scale displacement on a synthetic mesh to the pre-v1.3 code: a hash, plus the stored displacement array, which is compared at 0.1 µm when the hash differs (float32 coordinates can flip a value on a micrometre rounding edge). A negative control checks that it detects a real change.
+
+**Tests:**
+```
+blender -b --factory-startup --python tests/run_tests.py
+python tests/dry_run_examples.py --blender <blender>
+```
 
 ## 2. Primary forms: cross-section lofts (headless, deterministic)
 
@@ -319,6 +403,9 @@ Rules:
 - **Pass `target=` by keyword.** In the spec signature, the 7th positional argument is the target in mm, not a pass count.
 - Points only need to be near the surface, but `view` must face it. Grazing rays miss, so for undersides (belly, throat) look along the body frame's dorsal axis.
 - Accept a stroke if it achieves 70–160% of its target. Re-aim the strokes outside that range.
+- **Stroke guard (v1.3).** Each point is ray-cast from 0.3 m outside along `view`, so a part in front catches the ray. The Komodo's inguinal and knee creases cut its thighs that way. The driver skips a stroke when its median hit lies more than **4 × the brush radius** (at least 10 mm) from its points, and logs it in `strokes_skipped` with `hit_offset_mm` on every stroke.
+  - Why relative to the radius: large Smooth, Clay and Inflate strokes are often placed on a limb's axis, inside it, and land on its skin harmlessly. On the dragon and the Komodo they land at most 2.3 r away, while misplaced creases land 5.5–21 r away. A fixed 40 mm threshold skipped good polish strokes and the Komodo's calf and forearm muscles.
+  - A skipped stroke means its points or view need fixing. Do not switch the guard off (`spec(..., guard=False)`) to make it run.
 
 ## 5. Precise features: procedural displacement
 
@@ -367,6 +454,14 @@ Parts:
   - **Horns:** sweeps with a periodic bulge (`scale_fn`) for growth ridges.
   - **Dorsal spikes:** placed by ray-casting down the dorsal axis of the trunk path, sized by a curve along it, alternating major/minor.
 - **Claws:** a hooked sweep whose drop is clamped to `(base.z - 1.5 mm) / length`, so the tip stays above the ground. Add a dewclaw on the inner back of the wrist.
+- **Skin collars (v1.3, `Creature.insert_collars = True`):** horns, spikes and claws grow out of a swell of skin instead of looking stuck in.
+  - Inserts record `(base, direction, radius, height, mirrored)` in `ctx["collars"]`; `ck.claw` and `ck.spikes_along` accept `collars=`.
+  - After the inserts, `ck.apply_collars` swells the skin within 2.2 × the radius (height 0.35 × radius, 1.5–8 mm). Each vertex moves along its normal **smoothed over about 6 mm**, weighted by how much it faces the insert direction. Where collars overlap, the larger swelling wins.
+  - Three ways it went wrong on the dragon's forefoot, each now covered by a test:
+    - one push direction made the toe skin slide up the claws into a petal-edged sleeve;
+    - raw vertex normals, which follow every scale (collars run after the scale field), crumpled the skin;
+    - adding neighbouring claws' collars together raised a ridge across the foot.
+- **Re-posed limbs:** `ck.follow_chains(p, [(old_pts, new_pts)], full, fade)` carries anchors and stroke points with a changed limb chain (fully within `full`, fading out at `fade`). Without it, anchors stay where the old limb was.
 - **Wing:** finger sweeps plus membrane patches.
   - Membranes are Coons/ruled patches between finger paths and the arm/flank lines.
   - **Panels that share an edge must sample it identically**, or the chords diverge and leave a crack.
@@ -464,6 +559,7 @@ Each cell also gets ±15% random height.
 | 2 | Tail (`w_tail`) | Staggered whorls | 20 × 18 mm | 2 mm |
 | 2 + 1 | Head (`w_head`) | Plates; large cranial plates on top | 13 mm; 28 mm | 1.5 mm; 3 mm |
 | 2 | Toes (`w_foot`) | Transverse scutes | 10 mm rows | 1.2 mm |
+| 2 | Flanks, neck sides (`w_spine`), optional | Rows along the body rings (crocodilian flank); `flank_rows: {"enabled": True}` | 15 × 13 mm | 2 mm |
 | 2 | Lips (`w_lip`) | Labial scales | 12 × 11 mm | 1 mm |
 | – | Mouth (`w_mouth`) | None | – | – |
 
@@ -471,6 +567,7 @@ Each cell also gets ±15% random height.
 - **Resolution:** at the 1.6 mm high-poly, Level 2 scales smaller than about 8 mm turn to mush. Leave those to Level 3 (shader).
 - **Material:** with geometric scales the material switches to `GEO_SCALES` mode. Colour, groove darkening and roughness read the real `scale_h` and `scale_tint`, and the bump carries only Level 3 micro relief (0.35 mm). Shader patterns no longer fight the geometry.
 - **Game mesh:** it is built from the pre-scale mesh, and the scales go into its normal map. The deviation gate therefore measures against the **pre-scale** surface; the log also records the deviation to the scaled surface, for information.
+- **Joint relief (v1.3):** skin over elbows, knees and wrists folds, so its scales are smaller and lower. `body_fields` writes `w_joint`: 1 at limb chain nodes that bend more than 25°, fading out over 0.8–1.8 local limb radii. With `Creature.joint_relief = 0.5`, scale height there halves. It applies only when a limb region is planned `flexible`, and is off by default (v1.2 output unchanged). The log records `scales.joint_relief_vertices`.
 
 ## 8. Game version
 
@@ -507,6 +604,15 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
    - QuadriFlow gate result and decimation deviation;
    - bake results and the mean pixel values (a black or empty bake is a failure).
 3. **Measure the forms:** run `quality_metrics.py --ref <name>_primary.blend` on the high-poly. The added form (90th percentile, per region) must rise when anatomy work is added; flat regions show as near 0. Do not use a whole-body relief percentile for muscles: it is dominated by thin parts and could not see 15 mm muscles (Phase A v2 measured *lower* than the baseline while the clay showed clear gains).
+   - **What the relief numbers can see** (v1.3 calibration, test `relief_metrics_are_calibrated`):
+
+     | Metric | Fraction of a feature's true height it reports (1.69 mm edges) |
+     |---|---|
+     | `relief_fine_mm` (gate: p90 ≥ 0.5 mm in all 5 regions) | 5 mm: 84–96 %; 10 mm: 25–76 %; 15 mm: ≤ 21 %; 20 mm and up: ~0 |
+     | `relief_medium_mm` | 10 mm: ~90 %; 20 mm: ~18 %; 40 mm: 10–17 % |
+     | `relief_band_30mm_mm` (v1.3) | 12 mm: 92–97 %; 20 mm: 30 %; 45 mm: ≤ 1 %, at any edge length ≥ 7 per 30 mm |
+
+     Taubin smoothing's cut-off is set by its λ/μ factors and the edge length, not by the iteration count. The fine gate therefore measures groove crispness and small scales, not the height of 15–40 mm scales or plates, and its band moves with mesh resolution. Use `relief_band_30mm_mm` to compare scale relief across builds, and keep the fine gate as it is (changing a gate to pass is not allowed).
 4. **Reopen each .blend in a fresh process** (`inspect_model.py`) and check:
    - evaluated triangles;
    - shells;
@@ -569,12 +675,20 @@ Inserts keep their procedural materials. Before shipping to an engine, bake them
 | Limb scales look like cracked leather | Isotropic cells on limbs | Oriented rows along the limb chain, overlapping distally |
 | Game mesh "deviates" by up to 9 mm after scales | Gate measured against the scaled surface | Gate against the pre-scale surface; scales live in the normal map |
 | A wing "looked" 0.6x the body next to a reference; measured, it was 0.9x | Proportions read off a perspective screenshot | Measure your own model (sections, reach, area) before and after; call reference numbers estimates |
-| Thicker or re-posed limbs leave anatomy volumes and strokes behind | Anchors are absolute points | Keep the old chain as `*_B3`, derive the new one, and carry nearby anchors with it (`follow_limbs` in the dragon example) |
+| Thicker or re-posed limbs leave anatomy volumes and strokes behind | Anchors are absolute points | Keep the old chain as `*_B3`, derive the new one, and carry nearby anchors with it (`ck.follow_chains`, v1.3) |
 | Dark marks on a membrane after raising its grid density | Patches sharing an edge sampled it differently (48 vs 36), so `remove_doubles` could not weld the seam and the sheets overlapped | Sample shared edges with one count (`N_FINGER`, `N_ARM` in the dragon); check layering by ray-counting sheets along the normal |
+| Heavier brows raised the skull midline | The cavity fillet fills the deeper groove between heavy brow ridges | Lower the cranium top (ap) together with any brow increase, and measure the midline as well as the maximum |
 | A stronger brow only made the skull more domed | The brow bump sat at 55° from horizontal, above the eye, so it raised the top | Put the brow edge just above the eye (38° for an eye at 16°) and measure the overhang past the eye |
 | Neck skin folds read as panel cuts in a grid | Thin Crease Sharp strokes on straight lines | Raise soft rolls (Clay, about 3 mm) on wavy, unevenly spaced paths, then crease only the grooves between them |
 | An eye reads as a ball sunk in a hole | The eyeball is smaller than its socket feature | Make the eye radius fill the socket and close the lids further |
 | A tooth root lands outside the cheek | A widened cheek moved the jaw-width ray | Bound the tooth row by the inner cheek wall (kit does this) |
+| Creases cut across a thigh or arm | The stroke's rays hit a part in front of the intended skin | Stroke guard: skip at > 4 × brush radius and log; fix the points or the view |
+| A fixed-distance stroke guard skipped good strokes | Big Smooth/Clay strokes are placed on a limb's axis and land 5–6 cm away by design | Make the guard relative to the brush radius (v1.3) |
+| Toe skin climbs the claws in pointed petals | The skin collar pushed every vertex along the claw axis | Swell along the surface normal, weighted by how much it faces the insert |
+| Crumpled skin and a ridge across the foot after collars | Raw normals follow each scale; neighbouring collars added up | Smooth the normals over ~6 mm first; overlapping collars take the maximum |
+| "Medium" relief measured the same band as "fine" | Taubin's cut-off ignores the iteration count | Calibrate on known sinusoids; use the edge-scaled band metric |
+| Golden hash fails about once in 15 runs | Float32 coordinates flip a value on a micrometre rounding edge | Keep the hash, compare the stored array at 0.1 µm when it differs |
+| Bake dies with `Malloc returns null` | RAM full and drive C too full for the page file to grow (another app opened mid-bake) | Keep several GB free on C; run builds with the disk watchdog; close heavy apps |
 
 ## 11. Reporting
 

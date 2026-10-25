@@ -21,6 +21,7 @@ import numpy as np
 DEFAULTS = {
     "seed": 7,
     "size_scale": 1.0,
+    "joint_relief": 0.0,     # v1.3: fraction of scale height removed at limb joints (body field w_joint)
     # Level 2, isotropic (object space): flanks, limbs, joints
     "granular": {"size": 0.010, "height": 0.0015, "rim": 0.30, "jitter": 0.9},     # v2 1.2 mm
     # Level 2, oriented along the limb chains: rows that overlap distally (v2 limbs were isotropic)
@@ -41,6 +42,10 @@ DEFAULTS = {
     "head_plates": {"size": 0.028, "height": 0.0030, "rim": 0.12, "jitter": 0.7, "top": (0.55, 0.75)},
     # Level 2: transverse toe scutes along each toe
     "toe": {"row": 0.010, "height": 0.0012, "rim": (0.30, 0.10), "rise": 0.50},
+    # Level 2, optional: scales in rows along the body rings on the trunk, neck and tail flanks (w_spine), replacing
+    # the isotropic granular cells there (crocodilian flanks). Off by default so existing creatures are unchanged.
+    "flank_rows": {"enabled": False, "size": (0.015, 0.013), "height": 0.0020, "rim": (0.22, 0.12), "rise": 0.35,
+                   "keel": 0.0, "keel_w": 0.12, "jitter": 0.30, "stagger": 0.15},
     # Level 2: labial (lip) scales in object (y, z)
     "labial": {"size": (0.012, 0.011), "height": 0.0010, "rim": 0.25, "jitter": 0.3},
 }
@@ -193,7 +198,8 @@ def apply(me, spec=None):
     nr = nr.reshape(-1, 3)
     st = _attr(me, "body_st", n, vec=True)
     s, t, td = st[:, 0], st[:, 1], st[:, 2]
-    w = {name: _attr(me, name, n) for name in ("w_up", "w_dorsal", "w_belly", "w_head", "w_tail", "w_foot", "w_lip", "w_mouth", "w_limb", "w_limbdir")}
+    w = {name: _attr(me, name, n) for name in ("w_up", "w_dorsal", "w_belly", "w_head", "w_tail", "w_foot", "w_lip", "w_mouth", "w_limb",
+                                               "w_limbdir", "w_spine")}
     # girth-normalised body coordinates: oriented scales shrink with the body (neck, tail tip) instead of keeping
     # one size everywhere (v1). u integrates ds / girth along the spine; around-coordinates divide by girth.
     g = _attr(me, "girth", n)
@@ -246,6 +252,8 @@ def apply(me, spec=None):
     pH, cH = masked(used("w_head") & (top > 1e-3), iso("head_plates", sd + 60), co)
     pf, cf = masked(used("w_foot"), row("toe", sd + 70), s)
     pl, cl = masked(used("w_lip"), ori("labial", sd + 80), co[:, 1], co[:, 2])
+    rows_on = bool(S["flank_rows"].get("enabled"))
+    pr_, cr_ = masked(used("w_spine"), ori("flank_rows", sd + 95), u_b, tn) if rows_on else (np.zeros(n), np.zeros(n))
     ag, ad, ap, at = S["granular"]["height"], S["dorsal"]["height"], S["paravertebral"]["height"], S["tail"]["height"]
     ah, aH, al = S["head"]["height"], S["head_plates"]["height"], S["labial"]["height"]
 
@@ -253,7 +261,8 @@ def apply(me, spec=None):
     H = pg * ag
     P, C = pg.copy(), cg.copy()
     aL, am = S["limb_plates"]["height"], S["limb"]["height"]
-    layers = [
+    layers = [(w["w_spine"], pr_ * S["flank_rows"]["height"], pr_, cr_)] if rows_on else []
+    layers += [
         (w["w_limbdir"], pm_ * am, pm_, cm_),
         (w["w_limb"], pL * aL, pL, cL),
         (w["w_dorsal"], _mix(band, pd * ad, pp * ap), _mix(band, pd, pp), _mix(band, cd, cp)),
@@ -265,6 +274,10 @@ def apply(me, spec=None):
     ]
     for wt, h_, p_, c_ in layers:
         H, P, C = _mix(wt, H, h_), _mix(wt, P, p_), _mix(wt, C, c_)
+    jr = float(S.get("joint_relief") or 0.0)
+    w_joint = _attr(me, "w_joint", n) if jr > 0 else np.zeros(n)
+    if jr > 0:                       # flexible skin at elbows, knees and wrists carries lower scales
+        H = H * (1.0 - jr * w_joint)
     keep = 1.0 - w["w_mouth"]
     H, P = H * keep, P * keep
     # displace the scale crowns outward, keeping grooves at the original surface
@@ -277,4 +290,5 @@ def apply(me, spec=None):
     return {"vertices": n, "height_mm": {"p50": round(float(np.percentile(H, 50)) * 1000, 2),
                                          "p90": round(float(np.percentile(H, 90)) * 1000, 2),
                                          "max": round(float(H.max()) * 1000, 2)},
-            "paravertebral_band_vertices": int((band * w["w_dorsal"] > 0.5).sum())}
+            "paravertebral_band_vertices": int((band * w["w_dorsal"] > 0.5).sum()),
+            "joint_relief_vertices": int((w_joint > 0.5).sum())}

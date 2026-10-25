@@ -30,9 +30,36 @@ def coords(me):
     return a.reshape(-1, 3)
 
 
-def spec(brush, r, strength, view, pts, label, target=None, mode="NORMAL", passes=1, sym=True):
+# v1.3 stroke guard: a stroke's rays start 0.3 m outside along the view, so a part in front (a thigh in front of the
+# groin) catches them and the crease lands on the wrong form. Skip a stroke whose surface hits are, at the median,
+# further from its requested points than GUARD_RATIO x the brush radius (at least GUARD_MIN_M), and log it. Relative to
+# the radius because big Smooth/Clay strokes are often placed on a limb's axis, inside it, and land harmlessly on its
+# skin (dragon and Komodo: offset <= 2.3 r), while misplaced creases land 5-20 r away and cut the wrong form.
+GUARD_RATIO = 4.0
+GUARD_MIN_M = 0.01
+
+
+def guard_skips(offset_m, radius):
+    """True when a stroke whose median hit lies offset_m from its points should be skipped (see GUARD_RATIO)."""
+    return offset_m > max(GUARD_RATIO * radius, GUARD_MIN_M)
+
+
+def spec(brush, r, strength, view, pts, label, target=None, mode="NORMAL", passes=1, sym=True, guard=True):
     return {"brush": brush, "r": r, "strength": strength, "view": V(view).normalized(), "pts": pts, "mode": mode,
-            "label": label, "target": target, "passes": passes, "sym": sym}
+            "label": label, "target": target, "passes": passes, "sym": sym, "guard": guard}
+
+
+def surface_hits(tree, pts, view, reach=0.3):
+    """Ray-cast each stroke point along the view from `reach` outside; returns (hits, distances from the requested
+    points). A large distance means another part in front caught the ray (see GUARD_RATIO)."""
+    hits, offs = [], []
+    for p in pts:
+        p = V(p)
+        loc, _, _, _ = tree.ray_cast(p - view * reach, view, reach * 2)
+        if loc is not None:
+            hits.append(loc)
+            offs.append((loc - p).length)
+    return hits, offs
 
 
 class Sculptor:
@@ -85,7 +112,8 @@ class Sculptor:
         strength, done, passes = s["strength"], 0.0, []
         max_passes = s["passes"] if s["target"] is None else 6
         for _ in range(max_passes):
-            rec = self._pass(s["brush"], s["r"], strength, s["view"], s["pts"], s["mode"], s["sym"], s["label"])
+            rec = self._pass(s["brush"], s["r"], strength, s["view"], s["pts"], s["mode"], s["sym"], s["label"],
+                             guard=s.get("guard", True))
             passes.append(rec)
             if rec.get("max_disp_mm") is None:
                 break
@@ -100,9 +128,11 @@ class Sculptor:
                                     "mode": s["mode"], "target_mm": s["target"], "passes": len(passes),
                                     "final_strength": round(strength, 3), "achieved_mm": round(done, 2),
                                     "dabs": passes[0].get("dabs"), "px_size": passes[0].get("px_size"),
-                                    "result": passes[-1].get("result")})
+                                    "hit_offset_mm": passes[0].get("hit_offset_mm"), "result": passes[-1].get("result")})
+        if str(passes[0].get("result", "")).startswith("skipped"):
+            self.log.setdefault("strokes_skipped", []).append((s["label"], passes[0]["result"]))
 
-    def _pass(self, brush, radius, strength, view, points, mode="NORMAL", sym=True, label="", reach=0.3):
+    def _pass(self, brush, radius, strength, view, points, mode="NORMAL", sym=True, label="", reach=0.3, guard=True):
         me = self.ob.data
         tree = self.bvh()
         pts = [V(p) for p in points]
@@ -112,14 +142,15 @@ class Sculptor:
             dense += [a.lerp(b, (i + 1) / n) for i in range(n)]
         if len(dense) == 1:
             dense = [dense[0]] * 4
-        hits = []
-        for p in dense:
-            loc, _, _, _ = tree.ray_cast(p - view * reach, view, reach * 2)
-            if loc is not None:
-                hits.append(loc)
+        hits, offs = surface_hits(tree, dense, view, reach)
         rec = {"strength": strength, "dabs": len(hits), "requested": len(dense)}
         if not hits:
             rec["result"] = "no surface hit"
+            return rec
+        rec["hit_offset_mm"] = round(float(np.median(offs)) * 1000, 1)
+        if guard and guard_skips(rec["hit_offset_mm"] / 1000, radius):
+            rec["result"] = ("skipped: surface hit %.0f mm (%.1f x radius) from the requested points (another part in front?)"
+                             % (rec["hit_offset_mm"], rec["hit_offset_mm"] / 1000 / radius))
             return rec
         center = sum(hits, V()) / len(hits)
         extent = max((h - center).length for h in hits)

@@ -1,0 +1,11 @@
+{
+ "defaults": {
+  "hash": "11460994860584e1",
+  "max_mm": 8.241
+ },
+ "dragon_v12": {
+  "hash": "443d82babb90bf75",
+  "max_mm": 8.241
+ },
+ "_recorded_from": "pre_dragon_gaps/scale_field.py"
+}

@@ -36,6 +36,7 @@ from mathutils.kdtree import KDTree
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import camera_setup  # noqa: E402
+import surface_plan  # noqa: E402
 import detail_materials as dm  # noqa: E402
 import proc_mesh as pm  # noqa: E402
 import sculpt_driver as sd  # noqa: E402
@@ -75,6 +76,74 @@ def dense(pts, step):
     path = pm.Path(pts)
     n = max(2, int(path.length / step))
     return [path.at(path.length * k / n)[0] for k in range(n + 1)]
+
+
+def follow_chains(p, pairs, full=0.08, fade=0.16):
+    """Carry a point with a re-posed chain (v1.3, from the dragon's follow_limbs). pairs: [(old_pts, new_pts)] of
+    equal length. The point moves with the displacement of the nearest old segment, fully within `full` metres of it
+    and fading to nothing at `fade`. Use it for anatomy anchors and stroke points when limb chains change."""
+    p = V(p)
+    for old, new in pairs:
+        best = None
+        for i in range(len(old) - 1):
+            a, b = V(old[i]), V(old[i + 1])
+            ab = b - a
+            t = max(0.0, min(1.0, (p - a).dot(ab) / ab.length_squared))
+            d = (p - (a + ab * t)).length
+            if best is None or d < best[0]:
+                best = (d, i, t)
+        d, i, t = best
+        w = max(0.0, min(1.0, (fade - d) / (fade - full)))
+        if w > 0:
+            p = p + (V(new[i]).lerp(V(new[i + 1]), t) - V(old[i]).lerp(V(old[i + 1]), t)) * w
+    return p
+
+
+def apply_collars(me, collars, smooth_m=0.006):
+    """Skin swelling around insert bases (v1.3) so horns, spikes and claws grow out of the skin instead of looking
+    stuck into it. collars: [(base, direction, radius, height or None, mirrored)]. Each is a smooth bump over 2.2 x
+    the insert radius, centred on the base (its middle is hidden under the insert); height defaults to 0.35 x radius,
+    clamped to 1.5-8 mm. Returns the vertices moved.
+    - Skin moves along its normal smoothed over ~smooth_m: raw normals follow every scale and crumple the skin.
+    - Each vertex is weighted by how much that normal faces the insert direction, so skin beside the insert (a toe's
+      top under a claw) does not slide along it into a sleeve.
+    - Overlapping collars (neighbouring claws) take the larger swelling instead of adding up into a ridge."""
+    co = sd.coords(me)
+    n_v = len(co)
+    vn = np.empty(n_v * 3)
+    me.vertices.foreach_get("normal", vn)
+    vn = vn.reshape(-1, 3)
+    ed = np.empty(len(me.edges) * 2, np.int64)
+    me.edges.foreach_get("vertices", ed)
+    ed = ed.reshape(-1, 2)
+    if len(ed):
+        edge = float(np.median(np.linalg.norm(co[ed[:, 0]] - co[ed[:, 1]], axis=1)))
+        deg = np.maximum(np.bincount(ed.ravel(), minlength=n_v), 1).astype(float)
+        for _ in range(int(np.clip(round((smooth_m / max(edge, 1e-6)) ** 2), 2, 60))):
+            acc = np.stack([np.bincount(ed[:, 0], vn[ed[:, 1], k], n_v) + np.bincount(ed[:, 1], vn[ed[:, 0], k], n_v)
+                            for k in range(3)], 1)
+            vn = 0.5 * vn + 0.5 * acc / deg[:, None]
+        vn /= np.maximum(np.linalg.norm(vn, axis=1), 1e-12)[:, None]
+    off = np.zeros(n_v)
+    for base, normal, radius, height, mirror in collars:
+        h0 = min(0.008, max(0.0015, 0.35 * radius)) if height is None else height
+        reach = radius * 2.2
+        for s in ((1, -1) if mirror else (1,)):
+            c, n = np.array(mx(base, s)), np.array(mx(normal, s), float)
+            n /= np.linalg.norm(n)
+            r_all = np.linalg.norm(co - c, axis=1)
+            sel = np.where(r_all < reach)[0]
+            o = h0 * (1 - (r_all[sel] / reach) ** 2) ** 2 * np.clip(vn[sel] @ n, 0.0, 1.0)
+            off[sel] = np.maximum(off[sel], o)
+    co += vn * off[:, None]
+    me.vertices.foreach_set("co", co.ravel())
+    me.update()
+    return int((off > 1e-5).sum())
+
+
+def collar(me, base, normal, radius, height=None):
+    """One skin collar (see apply_collars)."""
+    return apply_collars(me, [(base, normal, radius, height, False)])
 
 
 def surface_hit(tree, target, direction, reach=0.4):
@@ -149,6 +218,9 @@ class Creature:
     eye = None                      # dict(radius, sink, lid_up=(tilt, cap), lid_lo=(tilt, cap))
     hipoly_subdiv = 1               # Catmull-Clark levels applied after the secondary sculpt (the high-poly stage)
     anatomy_fillet = 14             # cavity-fillet iterations after the anatomy volumes are fused (base fillet: 30)
+    surface_plan = None             # v1.3: list of region overrides for surface_plan.DEFAULT_PLAN (what surface goes where)
+    insert_collars = False          # v1.3: swell the skin around insert bases recorded in ctx["collars"]
+    joint_relief = 0.0              # v1.3: fraction of scale height removed at limb joints (flexible plan regions)
     scales = None                   # geometric scales (Phase B): None = shader-only scales; True or a dict of overrides
                                     # for scale_field.DEFAULTS (sizes for a ~3 m creature; "size_scale" rescales them)
     hipoly_phases = ("tertiary",)   # stroke phases sculpted on the high-poly mesh instead of the base mesh
@@ -317,9 +389,12 @@ def paw(cr, part, center, fwd, toes, palm_scale=1.0, back_toe=None, dewclaw=None
         cr.toe_tips.append((tip + d * 0.002, d, r0 * 0.72, extra["claw"]))
 
 
-def claw(part, base, d, length, r0, material="claw"):
-    """Hooked tapering claw whose drop is clamped so the tip stays 1.5 mm above the ground. Returns the drop."""
+def claw(part, base, d, length, r0, material="claw", collars=None):
+    """Hooked tapering claw whose drop is clamped so the tip stays 1.5 mm above the ground. Returns the drop.
+    collars: list to record a skin collar at the claw base (v1.3, applied when Creature.insert_collars)."""
     d = V(d).normalized()
+    if collars is not None:
+        collars.append((V(base), d, r0 * 1.25, None, True))
     drop = min(0.62, max(0.12, (base.z - 0.0015) / length))
     down = V((0, 0, -1))
     pts = [base - d * 0.004, base + d * length * 0.45 + down * length * drop * 0.1,
@@ -332,7 +407,7 @@ def claw(part, base, d, length, r0, material="claw"):
 
 
 def spikes_along(part, tree, path, sizes, spacing, rng, material="spike", start=0.08, end_frac=0.92, alternate=0.74,
-                 jitter=0.08, rake=0.55, sink=0.006):
+                 jitter=0.08, rake=0.55, sink=0.006, collars=None):
     """Dorsal spikes/scutes placed by ray-casting down the dorsal axis of a loft path.
     sizes: [(fraction of path length, height m)]; alternates major/minor with seeded jitter."""
     s_pos, n = start, 0
@@ -348,6 +423,8 @@ def spikes_along(part, tree, path, sizes, spacing, rng, material="spike", start=
         h = float(np.interp(s_pos / path.length, [a for a, _ in sizes], [b for _, b in sizes]))
         h *= (1.0 if n % 2 == 0 else alternate) * (1.0 + rng.uniform(-jitter, jitter))
         rk = rake + rng.uniform(-0.1, 0.1)
+        if collars is not None:                  # midline spikes are not mirrored
+            collars.append((V(base), V(nrm), 0.42 * h, None, False))
         base = base - nrm * sink
         part.sweep([base, base + nrm * h * 0.45 + t * h * 0.12, base + nrm * h * 0.92 + t * h * rk],
                    [(0.15 * h, 0.42 * h, 0.42 * h, 2.0), (0.10 * h, 0.24 * h, 0.30 * h, 2.0), (0.003, 0.004, 0.004, 2.0)],
@@ -621,16 +698,34 @@ def body_fields(cr, me, w_mouth, w_lip):
     outward = np.sign(c[:, 0]) * r[:, 0]
     w_limb = member * is_limb * smoothstep(0.15, 0.55, outward) * smoothstep(0.08, 0.2, c[:, 2])
     w_limbdir = member * is_limb                                  # oriented limb scales all around the limb
+    # v1.3 joint weight: 1 at limb joints (chain nodes where the limb bends by more than 25 deg), fading out over
+    # 0.8-1.8 local limb radii; scale_field lowers scale height there when the creature sets joint_relief
+    w_joint = np.zeros(n)
+    for g, pts in cr.field_chains():
+        if g not in ("front", "hind", "arm") or g not in groups:
+            continue
+        in_g = (b_group == groups.index(g)) & (member > 0.5)
+        P = [np.array(p, float) for p in pts]
+        for i in range(1, len(P) - 1):
+            a_, b_ = P[i] - P[i - 1], P[i + 1] - P[i]
+            if a_ @ b_ > math.cos(rad(25)) * np.linalg.norm(a_) * np.linalg.norm(b_):
+                continue
+            for s in ((1, -1) if g in cr.mirrored_groups else (1,)):
+                dj = np.linalg.norm(c - np.array(mx(P[i], s)), axis=1)
+                near = in_g & (dj < 0.12)
+                R = float(np.median(best[near])) if near.sum() > 20 else 0.05
+                w_joint = np.maximum(w_joint, 1.0 - smoothstep(0.8 * R, 1.8 * R, dj))
+    w_joint *= member * is_limb
     for name, val in (("girth", girth), ("body_u", body_u)):          # unclipped scale coordinates
         a_ = me.attributes.get(name) or me.attributes.new(name, "FLOAT", "POINT")
         a_.data.foreach_set("value", val.astype(np.float32))
-    attrs = {"w_up": w_up, "w_limb": w_limb, "w_limbdir": w_limbdir,
+    attrs = {"w_up": w_up, "w_limb": w_limb, "w_limbdir": w_limbdir, "w_spine": m_spine,   # w_spine: trunk, neck, tail
              "w_dorsal": smoothstep(0.30, 0.55, cos_up) * m_spine * (1 - w_head),
              "w_belly": smoothstep(math.cos(rad(57)), math.cos(rad(43)), -cos_up) * m_spine * (1 - w_mouth),
              "w_head": w_head * (1 - w_mouth),
              "w_tail": smoothstep(cr.tail_y[0], cr.tail_y[1], c[:, 1]) * m_spine,
              "w_foot": smoothstep(-0.35, 0.0, r[:, 2]) * m_toe,
-             "w_lip": w_lip, "w_mouth": w_mouth}
+             "w_lip": w_lip, "w_mouth": w_mouth, "w_joint": w_joint}
     for name, val in attrs.items():
         a = me.attributes.get(name) or me.attributes.new(name, "FLOAT", "POINT")
         a.data.foreach_set("value", np.clip(val, 0, 1).astype(np.float32))
@@ -740,6 +835,8 @@ def bake_maps(cr, high, low, ov, sizes):
     nt.links.new(texs["ao"].outputs["Color"], dm.sock(mul.inputs, "B_Color"))
     nt.links.new(dm.sock(mul.outputs, "Result_Color"), bsdf.inputs["Base Color"])
     nt.links.new(texs["roughness"].outputs["Color"], bsdf.inputs["Roughness"])
+    for k, v in dm.sss_inputs("body").items():        # v1.3 body:sss carries over to the game material
+        bsdf.inputs[k].default_value = v
     nmap = nt.nodes.new("ShaderNodeNormalMap")
     nt.links.new(texs["normal"].outputs["Color"], nmap.inputs["Color"])
     nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
@@ -816,7 +913,12 @@ def build(cr, out_dir):
     bpy.context.preferences.filepaths.save_version = 0
     for o in list(bpy.data.objects):
         bpy.data.objects.remove(o)
-    mats = dm.build_all(palette=cr.palette, stripes=cr.stripes, prefix=cr.prefix + "M_", geo_scales=bool(cr.scales))
+    plan, log["surface_plan_warnings"] = surface_plan.resolve(cr.surface_plan)   # v1.3: what surface goes where
+    log["fur_planned"] = surface_plan.fur_requests(plan)                         # interface only: nothing is built
+    log["surface_plan"] = surface_plan.summary(plan)
+    mats = dm.build_all(palette=cr.palette, stripes=cr.stripes, prefix=cr.prefix + "M_", geo_scales=bool(cr.scales),
+                        profiles=[r["material_profile"] for r in plan if r.get("enabled", True)])
+    log["material_profiles"] = {k: dict(v) for k, v in dm.PROFILE.items()}
     scene = bpy.context.scene
     settings = camera_setup.load_settings()
     col = camera_setup.ensure_collection(settings["collections"]["model"], scene)
@@ -921,6 +1023,8 @@ def build(cr, out_dir):
     head_mask = (c[:, 1] < cr.head_y[1] + 0.02) & (c[:, 2] > cr.head_z[0] - 0.05)
     w_lip = lip_weights(c, w_mouth, head_mask)
     log["field_vertices_over_half"] = body_fields(cr, high.data, w_mouth, w_lip)
+    log["surface_region_vertices"] = {r["region_id"]: log["field_vertices_over_half"].get(r["weight"])
+                                      for r in plan if r.get("weight")}
     high.data.materials.append(mats["body"])
     cr.mark("fields_written")
 
@@ -951,11 +1055,12 @@ def build(cr, out_dir):
     if cr.scales:                            # Phase B: Level 1 plates + Level 2 scales as real displacement
         import scale_field
         pre_scale = sd.coords(high.data)[::max(8, len(high.data.vertices) // 120000)]
-        log["scales"] = scale_field.apply(high.data, cr.scales if isinstance(cr.scales, dict) else None)
+        log["scales"] = scale_field.apply(high.data, surface_plan.scale_spec(plan, cr.scales, cr.joint_relief))
         high.data.update()
         cr.mark("scales_displaced")
 
-    ctx = {"tree": tree, "prof": prof, "eye_ref": eye_ref, "info": cr.info, "rng": np.random.default_rng(6), "high": high}
+    ctx = {"tree": tree, "prof": prof, "eye_ref": eye_ref, "info": cr.info, "rng": np.random.default_rng(6), "high": high,
+           "collars": []}
     parts = []
     if cr.eye and eye_ref:
         eye_parts, centre = build_eyes(cr, eye_ref)
@@ -971,6 +1076,8 @@ def build(cr, out_dir):
             tongue, log["tongue_length_m"] = build_tongue(tree, prof, cr.prefix + "Tongue", **g)
             parts.append((tongue, False))
     parts += cr.inserts(ctx)
+    if cr.insert_collars and ctx["collars"]:          # v1.3: inserts grow out of the skin
+        log["insert_collars"] = {"count": len(ctx["collars"]), "vertices_moved": apply_collars(high.data, ctx["collars"])}
     objs = []
     for part, mirror in parts:
         if not getattr(part, "packed", False):
@@ -1002,7 +1109,7 @@ def run(cr, script_file):
     if cr.settings:
         os.environ["CREATURE_SETTINGS"] = cr.settings
         camera_setup.SETTINGS_PATH = cr.settings
-    out_dir = (tempfile.mkdtemp(prefix=f"{cr.name}_dry_") if DRY_RUN else
+    out_dir = ((os.environ.get("CREATURE_DRY_DIR") or tempfile.mkdtemp(prefix=f"{cr.name}_dry_")) if DRY_RUN else
                os.environ.get("CREATURE_OUT_DIR") or cr.out_dir or os.path.dirname(os.path.abspath(script_file)))
     os.makedirs(out_dir, exist_ok=True)
     too_long = [p for p in (os.path.abspath(script_file), os.path.join(HERE, "material_palette.py")) if len(p) > 250]

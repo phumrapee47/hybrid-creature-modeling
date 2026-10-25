@@ -12,9 +12,17 @@ Per mesh object (evaluated, world space):
       fine - (a smooth surface) is ~0; a deeply scaled sculpt shows millimetres everywhere.
   relief by region (bands along +Y, the body axis) so a detailed head cannot hide a smooth tail.
 Shader bump and normal maps are invisible here by design: this measures geometry only.
+
+v1.3 calibration (tests/run_tests.py, sinusoidal skin of known height): Taubin's cut-off is set by its lambda/mu
+factors and the edge length, not by the iteration count, so fine and medium both pass only features shorter than
+about 6-7 edges. At 1.69 mm edges: 5 mm features 84-96 % of their true height, 10 mm 25-76 %, 15 mm <= 21 %, 20 mm
+and longer ~0 % (medium: 10 mm ~90 %, 20 mm ~18 %). The fine-relief gate therefore measures groove crispness and
+small scales, not the height of 15-40 mm scales and plates. relief_band_30mm_mm is resolution-independent: mu is
+chosen so the pass band ends at 30 mm whatever the edge length (12 mm features 92-97 %, 45 mm features <= 1 %).
 """
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -66,6 +74,17 @@ def taubin(co, ed, iters, lam=0.5, mu=-0.53):
                 acc[:, k] = np.bincount(ed[:, 0], p[ed[:, 1], k], n) + np.bincount(ed[:, 1], p[ed[:, 0], k], n)
             p = p + f * (acc / deg[:, None] - p)
     return p
+
+
+def band_relief(co, ed, nr, edge_m, cut_m, lam=0.5):
+    """Relief of features shorter than about cut_m (v1.3): Taubin with mu chosen so its pass-band edge sits at cut_m
+    for this edge length, so the band does not move when the mesh resolution changes. None if cut_m < 7 edges
+    (too close to the mesh's own resolution to be stable). Returns (signed relief per vertex, iterations)."""
+    if cut_m < 7 * edge_m:
+        return None, 0
+    kpb = (1 - math.cos(2 * math.pi * edge_m / cut_m)) / 2
+    iters = int(min(400, max(30, round(3.0 / kpb))))
+    return ((co - taubin(co, ed, iters, lam, 1.0 / (kpb - 1.0 / lam))) * nr).sum(1), iters
 
 
 def secondary_relief(ob, dg, co_full, nr_full, wavelength=0.15, target_faces=60000):
@@ -170,6 +189,11 @@ for ob in bpy.data.objects:
         names = ["front_20pct (head/neck)", "20-40pct (chest)", "40-60pct (body)", "60-80pct (hips/tail)", "rear_20pct (tail)"]
         rec["relief_fine_by_region_p90_mm"] = {nm: round(float(np.percentile(np.abs(fine[(y >= a) & (y <= b)]) * 1000, 90)), 2)
                                                for nm, a, b in zip(names, edges, edges[1:])}
+        band, rec["relief_band_30mm_iterations"] = band_relief(co, ed, nr, rec["median_edge_mm"] / 1000, 0.030)
+        if band is not None:
+            rec["relief_band_30mm_mm"] = pct(band)
+            rec["relief_band_30mm_by_region_p90_mm"] = {nm: round(float(np.percentile(np.abs(band[(y >= a) & (y <= b)]) * 1000, 90)), 2)
+                                                        for nm, a, b in zip(names, edges, edges[1:])}
     if ref_tree is not None and ob.name.endswith("Body_HighRes"):
         rec["added_form_mm"] = added_form(co, ref_tree, {"head (y<-0.72)": (-9, -0.72), "neck+chest": (-0.72, -0.2),
                                                          "body": (-0.2, 0.45), "tail": (0.45, 9)})

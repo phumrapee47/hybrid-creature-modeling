@@ -467,6 +467,21 @@
    "purpose": "Horn"
   },
   {
+   "id": "d11_horn_base",
+   "target": [
+    0.047,
+    -0.806,
+    1.269
+   ],
+   "offset": [
+    0.34,
+    -0.16,
+    0.14
+   ],
+   "lens": 85,
+   "purpose": "Main horn base: skin collar (v1.3)"
+  },
+  {
    "id": "ref_head",
    "target": [
     0.0,
@@ -585,6 +600,21 @@
    ],
    "lens": 50,
    "purpose": "Wing wrist and knuckles: where the finger panels converge (membrane seams)"
+  },
+  {
+   "id": "d10_neck",
+   "target": [
+    0.06,
+    -0.66,
+    1.0
+   ],
+   "offset": [
+    0.55,
+    -0.22,
+    0.06
+   ],
+   "lens": 60,
+   "purpose": "Neck skin folds and throat plates (reference gap 4)"
   }
  ],
  "reference_bbox_note": "step R v1: wings 1.2x (B3 box: x 1.4, z 1.65)"

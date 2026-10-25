@@ -15,9 +15,29 @@ import bpy
 import material_palette as mp
 
 PFX = "DRG6_"
-PAL = dict(mp.PALETTE)   # replaced per creature by build_all(palette=...)
+PAL = dict(mp.PALETTE)   # reset to mp.PALETTE and updated per creature by build_all(palette=...)
 GEO_SCALES = False       # True: scales are geometry (scale_field); the shader follows scale_h / scale_tint
 STRIPES = None           # e.g. {"period": 0.12, "darkness": 0.55, "width": 0.35}; dorsal/flank bands across the body axis
+
+# v1.3 material profiles: a surface-plan region's material_profile is a build_all key ("claw", v1.2 look) or a
+# variant of one ("claw:matte"), which changes only the parameters listed here.
+VARIANTS = {
+    "claw:matte": {"rough": 0.42, "coat": 0.06},     # dry keratin; v1.2 claws (rough 0.28, coat 0.35) read as lacquered
+    "horn:matte": {"rough": 0.55, "coat": 0.0},
+    "spike:matte": {"rough": 0.55, "coat": 0.0},
+    "tooth:enamel": {"rough": 0.30, "coat": 0.25, "sss": 0.25},
+    "body:sss": {"sss": 0.06, "sss_radius": (1.0, 0.35, 0.2), "sss_scale": 0.004},   # light through thin skin
+}
+PROFILE = {}             # material key -> variant parameters, set by build_all(profiles=...)
+
+
+def sss_inputs(key):
+    """Principled inputs for the profile's subsurface scattering ({} when the profile has none)."""
+    v = PROFILE.get(key, {})
+    if not v.get("sss"):
+        return {}
+    return {"Subsurface Weight": v["sss"], "Subsurface Radius": v.get("sss_radius", (0.6, 0.45, 0.3)),
+            "Subsurface Scale": v.get("sss_scale", 0.004)}
 
 
 def lin(hex_str):
@@ -236,7 +256,7 @@ def body_skin():
     col = b.mulc(col, b.mixf(w["w_mouth"], b.mixf(h, 0.74, 1.0), 1.0))
     rough = b.mixf(w["w_mouth"], b.mixf(h, 0.70, 0.48), 0.22)
     p = b.principled(**{"Base Color": col, "Roughness": rough, "Normal": sock(bump.outputs, "Normal"),
-                        "Coat Weight": b.math("MULTIPLY", w["w_mouth"], 0.5)})
+                        "Coat Weight": b.math("MULTIPLY", w["w_mouth"], 0.5)}, **sss_inputs("body"))
     return b.finish(p.outputs[0])
 
 
@@ -397,22 +417,38 @@ def cornea():
     return b.finish(mix.outputs[0])
 
 
-def build_all(palette=None, stripes=None, prefix=None, geo_scales=False):
+def build_all(palette=None, stripes=None, prefix=None, geo_scales=False, profiles=None):
     """palette: dict key -> {"hex": ...} overriding the shared palette (keys skin, belly, horn, claw, eye,
-    membrane, tooth, gum, tongue; optional horn_base/horn_tip/claw_base/claw_tip). stripes: see STRIPES."""
+    membrane, tooth, gum, tongue; optional horn_base/horn_tip/claw_base/claw_tip). stripes: see STRIPES.
+    profiles: material_profile values from the surface plan; "key:variant" entries apply VARIANTS (v1.3).
+    The palette starts from mp.PALETTE on every call, so one creature's colours never leak into the next."""
     global STRIPES, PFX, GEO_SCALES
     GEO_SCALES = geo_scales
+    PAL.clear()
+    PAL.update(mp.PALETTE)
     if palette:
         PAL.update(palette)
     STRIPES = stripes
     if prefix:
         PFX = prefix
+    PROFILE.clear()
+    for name in profiles or []:
+        if ":" not in name:
+            continue
+        if name not in VARIANTS:
+            raise ValueError(f"unknown material profile {name!r}; known variants: {sorted(VARIANTS)}")
+        PROFILE[name.split(":", 1)[0]] = VARIANTS[name]
     hx = lambda k, d: PAL[k]["hex"] if k in PAL else d  # noqa: E731
+
+    def ker(key, base, tip, rough, **kw):
+        v = PROFILE.get(key, {})
+        kw.update({k: v[k] for k in ("coat", "sss") if k in v})
+        return keratin(key, base, tip, v.get("rough", rough), **kw)
     return {
         "body": body_skin(), "skin": simple_skin(), "membrane": membrane(),
-        "horn": keratin("horn", hx("horn_base", "#6B4E2B"), hx("horn_tip", "#B39064"), 0.46, rings=22.0, coat=0.08, fibres=260.0),
-        "spike": keratin("spike", hx("spike_base", "#5A4426"), hx("spike_tip", "#A88A5E"), 0.46, coat=0.08, fibres=260.0),
-        "claw": keratin("claw", hx("claw_base", "#4A4440"), hx("claw_tip", "#121212"), 0.28, coat=0.35),
-        "tooth": keratin("tooth", "#C9B88A", PAL["tooth"]["hex"], 0.22, coat=0.4, sss=0.2),
+        "horn": ker("horn", hx("horn_base", "#6B4E2B"), hx("horn_tip", "#B39064"), 0.46, rings=22.0, coat=0.08, fibres=260.0),
+        "spike": ker("spike", hx("spike_base", "#5A4426"), hx("spike_tip", "#A88A5E"), 0.46, coat=0.08, fibres=260.0),
+        "claw": ker("claw", hx("claw_base", "#4A4440"), hx("claw_tip", "#121212"), 0.28, coat=0.35),
+        "tooth": ker("tooth", "#C9B88A", PAL["tooth"]["hex"], 0.22, coat=0.4, sss=0.2),
         "tongue": tongue(), "eye": eye_iris(), "cornea": cornea(),
     }

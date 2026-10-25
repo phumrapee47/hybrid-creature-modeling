@@ -19,7 +19,9 @@ Skill สำหรับ Claude Code ที่สร้างโมเดล 3D 
 | **v1.2** Phase B | <img src="benchmarks/images/versions/v1.2_B_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_B_head.jpg" width="280"> | เกล็ดเป็นผิวจริง fine relief p90 จาก 0.02 เป็น 0.42–0.52 mm (gate ยังไม่ผ่าน) |
 | **v1.2** R1 | <img src="benchmarks/images/versions/v1.2_R1_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R1_head.jpg" width="280"> | เริ่มเทียบกับ reference: แขนขาหนาขึ้นราว 30%, ศอกและเข่ากางออก, ปีกยาวจาก 0.90 เป็น 1.08 เท่าของระยะจมูกถึงสะโพก |
 | **v1.2** R2 | <img src="benchmarks/images/versions/v1.2_R2_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R2_head.jpg" width="280"> | หัวเหลี่ยม: สันคิ้วยื่นจาก 14 เป็น 26 mm, กะโหลกโค้งน้อยลง, เพิ่มเขาเรียงท้ายกะโหลกและหนามใต้คาง |
-| **v1.2** R3 (ปัจจุบัน) | <img src="benchmarks/images/versions/v1.2_R3_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R3_head.jpg" width="280"> | เขาหลักหนา ตรง และกวาดไปข้างหลัง; เกล็ดบนหัวเล็กลงจาก 13 เป็น 9 mm |
+| **v1.2** R3 | <img src="benchmarks/images/versions/v1.2_R3_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R3_head.jpg" width="280"> | เขาหลักหนา ตรง และกวาดไปข้างหลัง; เกล็ดบนหัวเล็กลงจาก 13 เป็น 9 mm |
+| **v1.2** R4 | <img src="benchmarks/images/versions/v1.2_R4_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.2_R4_head.jpg" width="280"> | ม้วนผิวหนังที่คอ, เกล็ดสีข้างเรียงเป็นแถว, สันคิ้วยื่น 31 mm, เขาท้ายกะโหลก 4 ต่อข้าง; fine relief ผ่าน gate ครบ 5 ส่วน |
+| **v1.3** (ปัจจุบัน) | <img src="benchmarks/images/versions/v1.3_three_quarter.jpg" width="280"> | <img src="benchmarks/images/versions/v1.3_head.jpg" width="280"> | ทั้งตัวแทบเหมือน R4; ระยะใกล้: ผิวหุ้มโคนเล็บและโคนเขา, เล็บไม่มันเหมือนเคลือบเงา, รอยพับที่กรีดผิดที่บนต้นขาหายไป ([รายงาน](benchmarks/upgrade/05_v13.md)) |
 
 ภาพขนาดเต็มทุกมุม (รวม clay) อยู่ใน [`benchmarks/images/versions/`](benchmarks/images/versions/) รายละเอียดแต่ละเฟสอยู่ในหัวข้อ "กำลังพัฒนาต่อ" ด้านล่าง
 
@@ -52,6 +54,7 @@ Skill สำหรับ Claude Code ที่สร้างโมเดล 3D 
   - เปิดไฟล์ใน process ใหม่เพื่อวัดสถิติ
   - exit code ตรงกับผลจริง
 - **`creature_kit.py`**: pipeline ทั้งหมดเป็น library สัตว์ตัวใหม่เขียนแค่ข้อมูลกับ builder ไม่กี่ตัว (ตัวอย่าง raptor ประมาณ 230 บรรทัด)
+- **Surface plan (v1.3)**: กำหนดก่อนสร้างว่าผิวแต่ละส่วนเป็นอะไร (เกล็ด, แผ่นเกราะ, หนาม, เขา, เยื่อ, ขน, ...) วางทิศทางอย่างไร ใช้วัสดุแบบไหน และงอได้แค่ไหน ค่าเริ่มต้นให้ผลเหมือน v1.2 ทุกอย่าง มี unit test ยืนยัน
 
 ---
 
@@ -89,7 +92,8 @@ Skill สำหรับ Claude Code ที่สร้างโมเดล 3D 
 | v1.2.0 | B: เกล็ดที่เป็น geometry (ระดับ 1–2) | เกล็ดเป็นผิวจริง fine relief p90 จาก 0.02 เป็น 0.43–0.53 mm; **ยังไม่ผ่าน gate** (≥ 0.5 mm ผ่าน 2 จาก 5 ส่วน) |
 | v1.2.0 | [R: เทียบกับโมเดลอ้างอิงที่สมจริง](benchmarks/upgrade/03_stepR.md) | สคริปต์ค้น reference และขั้น R ใน SKILL.md; มังกร: แขนขาหนาขึ้นราว 30%, ปีกยาวจาก 0.90 เป็น 1.08 เท่าของระยะจมูกถึงสะโพก, หัวเหลี่ยม (สันคิ้วยื่นจาก 14 เป็น 26 mm), เขาหนา ตรง กวาดไปข้างหลัง |
 | v1.2.1 | [ทดสอบ: มังกรโคโมโด](benchmarks/upgrade/04_komodo.md) | สัตว์จริงตัวแรกที่สร้างด้วยขั้น R แก้ตามสแกน 2 รอบ (ตัวลึกขึ้น, ขาหนาขึ้น, จมูกทู่) และแก้ข้อบกพร่อง 2 จุดจาก build แรก (รอยพับคอ, ลูกตา); เพิ่มเป็น `examples/komodo/` |
-| ถัดไป | gap 4–6 จาก reference | รอยพับคอ, เกล็ดสีข้างเรียงเป็นแถว, เกล็ดหลังเป็นสันสูง; ปิด gate ของ Phase B |
+| v1.3.0 | [วางแผนผิวตามกายวิภาค, collar, วัสดุ, interface ขน](benchmarks/upgrade/05_v13.md) | มังกร R4 ปิด gate ของ Phase B (fine relief ≥ 0.5 mm ครบ 5 ส่วน); surface plan 20 ส่วน, guard กันเส้นปั้นตกผิดที่, ผิวพองรอบโคนเขา/หนาม/เล็บ, ลดเกล็ดที่ข้อต่อ, variant วัสดุ (เล็บด้าน, SSS), ฟิลด์ขน (ยังไม่สร้างขนจริง), สอบเทียบ relief metric, unit test 18 ตัว |
+| ถัดไป | งานที่ค้าง | build โคโมโดด้วย v1.3, วาง crease 4 เส้นของมังกรใหม่, ตัวสร้างขน, ลำตัวมังกรเตี้ยลง, รอยขาดของเยื่อปีก |
 
 ---
 
@@ -148,7 +152,8 @@ spec → shape data (spine, cross-section, chain ของแขนขา)
 │   └── skills/hybrid-creature-modeling/
 │       ├── SKILL.md                 ← คู่มือหลักของ skill
 │       ├── scripts/                 ← creature_kit, proc_mesh, sculpt_driver, detail_materials, scale_field,
-│       │                               quality_metrics, reference_search, camera_setup, render_views, render_details ...
+│       │                               surface_plan, quality_metrics, reference_search, camera_setup, render_views ...
+│       ├── tests/                   ← unit test 18 ตัว (รันใน Blender แบบ headless) + dry run ของทุกตัวอย่าง
 │       └── examples/
 │           ├── raptor/              ← ตัวอย่างที่ใช้ creature_kit (เริ่มจากตรงนี้)
 │           ├── dragon/              ← มังกร benchmark บน creature_kit (กายวิภาค, high-poly, เกล็ด, ขั้น R)
@@ -169,3 +174,5 @@ spec → shape data (spine, cross-section, chain ของแขนขา)
 - ยังไม่ได้ทดสอบ rig, skinning หรือการ import เข้า game engine จริง เพราะ body ของ game mesh เป็น triangle ไม่มี edge loop
 - Insert เช่น ฟัน เขา และปีก ยังใช้ procedural material ถ้าจะใช้ใน engine ต้อง bake หรือแปลงเป็น vertex color ก่อน
 - ทดสอบบน Windows 11 + Blender 5.2.2 เครื่องเดียว
+- ขน แผงคอ หนวด และขนนก มีแค่ interface ใน surface plan ยังไม่มีตัวสร้างจริง สิ่งมีชีวิตที่มีขนจะได้ผิวเปล่าในส่วนนั้น และ log จะบอกไว้
+- Build เต็มตัวกิน RAM มากตอน bake 4K ควรเหลือที่ว่างในไดรฟ์ C หลาย GB เพื่อให้ page file ขยายได้
